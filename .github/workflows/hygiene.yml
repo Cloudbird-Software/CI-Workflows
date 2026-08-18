@@ -26,6 +26,7 @@ jobs:
               echo "::error file=$f::>5MB ($sz bytes)，用 Release 附件或 LFS"; fail=1
             fi
             case "$f" in
+              .env.example) ;;  # 占位文件，允许提交
               *.env|.env.*|*.pem|*.key|*.pfx|*.p12|*.keystore|*.jks|*id_rsa*)
                 echo "::error file=$f::不该提交的凭据类文件"; fail=1;;
             esac
