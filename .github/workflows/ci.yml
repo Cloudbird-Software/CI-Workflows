@@ -13,7 +13,6 @@ permissions:
 
 jobs:
   hygiene:
-    # zizmor: ignore[unpinned-uses]
     uses: ./.github/workflows/hygiene.yml@main
 
   gate:

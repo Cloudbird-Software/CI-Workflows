@@ -1,0 +1,6 @@
+# zizmor 审计配置：本仓 ci.yml 自引用 ./.github/workflows/hygiene.yml@main（随 main 演进），
+# 不 pin SHA 是有意为之。
+rules:
+  unpinned-uses:
+    ignore:
+      - ci.yml
