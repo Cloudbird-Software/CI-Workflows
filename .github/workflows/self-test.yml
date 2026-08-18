@@ -1,8 +1,0 @@
-name: self-test
-on: push
-permissions: {}
-jobs:
-  self:
-    uses: ./.github/workflows/check.yml@main
-    with:
-      runtime: none

@@ -1,0 +1,30 @@
+name: CI
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  hygiene:
+    uses: ./.github/workflows/hygiene.yml@main
+
+  gate:
+    if: always()
+    needs: [hygiene]
+    runs-on: ubuntu-latest
+    steps:
+      - name: All required jobs green?
+        env:
+          NEEDS: ${{ toJSON(needs) }}
+        run: |
+          echo "$NEEDS"
+          if echo "$NEEDS" | jq -e '[to_entries[] | select(.value.result != "success" and .value.result != "skipped")] | length > 0' >/dev/null; then
+            echo "::error::有 job 未通过"; exit 1
+          fi
