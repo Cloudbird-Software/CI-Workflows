@@ -29,7 +29,8 @@ jobs:
       - name: gh release
         env:
           GH_TOKEN: ${{ github.token }}
+          ARTIFACTS: ${{ inputs.artifacts }}
         run: |
           gh release create "${GITHUB_REF_NAME}" \
             --generate-notes \
-            $(ls -d ${{ inputs.artifacts }} 2>/dev/null || true)
+            $(ls -d $ARTIFACTS 2>/dev/null || true)
