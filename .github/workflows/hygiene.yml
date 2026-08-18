@@ -7,6 +7,7 @@ permissions: {}
 jobs:
   hygiene:
     runs-on: ubuntu-latest
+    timeout-minutes: 10   # 熔断上限（红队 #4 P1-2）
     permissions:
       contents: read
     steps:

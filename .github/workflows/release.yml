@@ -10,6 +10,7 @@ permissions: {}
 jobs:
   release:
     runs-on: ubuntu-latest
+    timeout-minutes: 20   # 熔断上限（红队 #4 P1-2）：build+attest+release 全链
     environment: production
     permissions:
       contents: write
