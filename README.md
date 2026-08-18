@@ -4,6 +4,8 @@ Cloudbird Software 组织的可复用工作流（唯一真相源）。业务仓�
 
 ## 提供的工作流
 
+可复用 workflow（业务仓 `uses:` 引用）：
+
 | 工作流 | 用途 | timeout 上限 |
 |---|---|---|
 | `check.yml` | `make setup` + `make check`（lint + test），支持 node / python / go 运行时 | 15min |
@@ -11,20 +13,28 @@ Cloudbird Software 组织的可复用工作流（唯一真相源）。业务仓�
 | `dep-review.yml` | 依赖漏洞 + 许可证审查（拒绝 AGPL/GPL-3.0/SSPL） | 10min |
 | `release.yml` | 构建 + SLSA 构建溯源 + GitHub Release 附件 | 20min |
 
+本仓自有 workflow（不可复用，仅本仓 CI）：
+
+| 工作流 | 用途 | timeout 上限 |
+|---|---|---|
+| `ci.yml` | 本仓 PR/push 门禁（hygiene + gate 聚合） | 10min / 5min |
+| `scorecard.yml` | 每周一 05:30 OSSF Scorecard 安全评分 + SARIF 上传 | 10min |
+
 所有 job 声明 `timeout-minutes` 熔断上限（testing.yaml "gate<5min" 原则的上界表达）：卡死的 job 不再无限占用 runner、不再阻塞合并。
 
 ## 权限模型（红队 #4 P1-3 审计结论）
 
-每个 workflow 顶层 `permissions: {}`（零权限默认），job 级显式声明最小必要权限：
+可复用 workflow（check / hygiene / dep-review / release）顶层 `permissions: {}`（零权限默认），job 级显式声明最小必要权限。本仓自有 workflow 例外：`ci.yml` 顶层 `contents: read`（job 级继承后按需收敛），`scorecard.yml` 顶层 `read-all`（Scorecard 评分需仓库元数据）+ job 级收敛为 `security-events/id-token: write` + `contents/actions: read`：
 
-| workflow | 显式权限 | 理由 |
+| workflow | 实际权限 | 理由 |
 |---|---|---|
-| check / hygiene | `contents: read` | checkout 只读 |
-| dep-review | `contents: read` + `pull-requests: write` | 仅 `comment-summary-in-pr`（失败时摘要评论） |
-| release | `contents/id-token/attestations: write` | 写 Release 附件 + SLSA 溯源签名；受 `production` environment 人工审批门（RL-1） |
-| scorecard | 上传 SARIF 所需最小集 | 周扫公开仓安全评分 |
+| check / hygiene | 顶层 `{}`，job 级 `contents: read` | checkout 只读 |
+| dep-review | 顶层 `{}`，job 级 `contents: read` + `pull-requests: write` | `comment-summary-in-pr` 失败摘要评论 + 评审写操作（见下） |
+| release | 顶层 `{}`，job 级 `contents/id-token/attestations: write` | 写 Release 附件 + SLSA 溯源签名；受 `production` environment 人工审批门（RL-1） |
+| ci.yml | 顶层 `contents: read` | 本仓 checkout 只读 |
+| scorecard.yml | 顶层 `read-all`，job 级 `security-events/id-token: write` + `contents/actions: read` | 评分需元数据读 + SARIF 上传 |
 
-`can_approve_pull_request_reviews` 是 org 级 API-only 设置（expected-state.json#actions_policy 固定 `false`）——workflow YAML 的 `permissions:` 块**无法表达也无法覆盖**该设置；本仓无任何 workflow 具备批准 PR 的权限路径。`pull-requests: write` ≠ 审批权（仅评论/标签类写操作）。
+**`pull-requests: write` 的完整语义（评审勘误）**：该权限按 GitHub 文档覆盖 PR 评审写操作——含提交 `APPROVE` / `REQUEST_CHANGES` 事件，并非仅评论/标签。当前拦截 Actions 身份批准 PR 的是 org 级 API-only 设置 `can_approve_pull_request_reviews=false`（expected-state.json#actions_policy 固定）——workflow YAML 的 `permissions:` 块**无法表达也无法覆盖**该设置。即：令牌权限本身含审批路径（记录在案、纳入 `pull-requests: write` 发放审计），实际能否落地审批由 org 设置封堵，且 org 设置变更会被每日 drift-check 检出。
 
 ## 已知风险与缓解（红队 #4 P1-4/P1-5 复核）
 

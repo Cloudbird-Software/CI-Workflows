@@ -10,7 +10,7 @@ jobs:
     timeout-minutes: 10   # 熔断上限（红队 #4 P1-2）
     permissions:
       contents: read
-      pull-requests: write   # 仅 comment-summary-in-pr（失败时摘要评论）；见 README 权限模型
+      pull-requests: write   # comment-summary-in-pr 摘要评论；该权限按 GitHub 语义含评审写操作（APPROVE/REQUEST_CHANGES），org 级 can_approve_pull_request_reviews=false 封堵审批落地；见 README 权限模型
     steps:
       - name: Harden Runner (egress audit)
         uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c # v2.21.0
