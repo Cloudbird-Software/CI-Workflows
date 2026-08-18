@@ -7,9 +7,10 @@ permissions: {}
 jobs:
   review:
     runs-on: ubuntu-latest
+    timeout-minutes: 10   # 熔断上限（红队 #4 P1-2）
     permissions:
       contents: read
-      pull-requests: write
+      pull-requests: write   # 仅 comment-summary-in-pr（失败时摘要评论）；见 README 权限模型
     steps:
       - name: Harden Runner (egress audit)
         uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c # v2.21.0

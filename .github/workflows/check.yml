@@ -13,6 +13,7 @@ permissions: {}
 jobs:
   check:
     runs-on: ${{ inputs.runs-on }}
+    timeout-minutes: 15   # 熔断上限（红队 #4 P1-2）；make check 时长随业务仓而异，15min=上限非目标
     permissions:
       contents: read
     steps:
