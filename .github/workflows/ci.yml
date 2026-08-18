@@ -13,7 +13,46 @@ permissions:
 
 jobs:
   hygiene:
-    uses: ./.github/workflows/hygiene.yml@main
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: No big files / no secret-ish files
+        run: |
+          set -eu
+          git ls-files > /tmp/f.txt
+          fail=0
+          while IFS= read -r f; do
+            [ -f "$f" ] || continue
+            sz=$(stat -c%s "$f")
+            if [ "$sz" -gt 5242880 ]; then
+              echo "::error file=$f::>5MB ($sz bytes)，用 Release 附件或 LFS"; fail=1
+            fi
+            case "$f" in
+              .env.example) ;;
+              *.env|.env.*|*.pem|*.key|*.pfx|*.p12|*.keystore|*.jks|*id_rsa*)
+                echo "::error file=$f::不该提交的凭据类文件"; fail=1;;
+            esac
+          done < /tmp/f.txt
+          exit $fail
+
+      - name: Secret scan (gitleaks CLI, 全历史)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -eu
+          ver=$(gh release view --repo gitleaks/gitleaks --json tagName -q .tagName)
+          v=${ver#v}
+          curl -sSfL "https://github.com/gitleaks/gitleaks/releases/download/${ver}/gitleaks_${v}_linux_x64.tar.gz" \
+            | tar -xz -C /usr/local/bin gitleaks
+          gitleaks git . --redact --no-banner --exit-code 1
+
+      - name: Actions 自身安全审计 (zizmor)
+        run: |
+          curl -LsSf https://astral.sh/uv/install.sh | sh
+          "$HOME/.local/bin/uvx" zizmor --persona regular --min-severity medium .
 
   gate:
     if: always()
