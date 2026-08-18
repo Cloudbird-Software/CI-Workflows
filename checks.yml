@@ -1,0 +1,54 @@
+name: check
+on:
+  workflow_call:
+    inputs:
+      runtime:      { type: string, default: "none" }   # node | python | go | none
+      node-version: { type: string, default: "24" }
+      python-version: { type: string, default: "3.13" }
+      go-version:   { type: string, default: "1.24" }
+      runs-on:      { type: string, default: "ubuntu-latest" }
+
+permissions: {}
+
+jobs:
+  check:
+    runs-on: ${{ inputs.runs-on }}
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+
+      - if: inputs.runtime == 'node'
+        uses: actions/setup-node@v7
+        with:
+          node-version: ${{ inputs.node-version }}
+          cache: npm
+
+      - if: inputs.runtime == 'python'
+        uses: actions/setup-python@v6
+        with:
+          python-version: ${{ inputs.python-version }}
+      - if: inputs.runtime == 'python'
+        run: curl -LsSf https://astral.sh/uv/install.sh | sh
+
+      - if: inputs.runtime == 'go'
+        uses: actions/setup-go@v6
+        with:
+          go-version: ${{ inputs.go-version }}
+
+      - name: make setup
+        run: make setup
+
+      - name: make check
+        run: make check
+
+      - name: Upload reports
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: reports-${{ inputs.runs-on }}
+          path: |
+            reports/
+            coverage/
+          if-no-files-found: ignore
+          retention-days: 14
