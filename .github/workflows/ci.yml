@@ -13,7 +13,8 @@ permissions:
 
 jobs:
   hygiene:
-    uses: ./.github/workflows/hygiene.yml@main # zizmor: ignore[unpinned-uses]（自引用，随本仓 main 演进）
+    # zizmor: ignore[unpinned-uses]（自引用，随本仓 main 演进）
+    uses: ./.github/workflows/hygiene.yml@main
 
   gate:
     if: always()
