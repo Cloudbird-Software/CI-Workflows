@@ -1,0 +1,11 @@
+version: 2
+# 依赖更新工具（scorecard DependencyUpdateTool；ADR-0011 安全姿态基线遗留项）：
+# 本仓全部 workflows 的 uses 均 SHA 锚定——dependabot github-actions 生态
+# 对 SHA 锚定引用提更新 PR（业务仓经 @v1 消费的是本仓发布产物，不受影响）。
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    cooldown:            # zizmor dependabot-cooldown：新版本冷却 7 天再提 PR（供应链缓冲）
+      default-days: 7
