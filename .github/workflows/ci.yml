@@ -44,21 +44,28 @@ jobs:
           done < /tmp/f.txt
           exit $fail
 
-      - name: Secret scan (gitleaks CLI, 全历史)
-        env:
-          GH_TOKEN: ${{ github.token }}
+      - name: Secret scan (gitleaks CLI, 全历史；版本+sha256 双锚定)
         run: |
           set -eu
-          ver=$(gh release view --repo gitleaks/gitleaks --json tagName -q .tagName)
-          v=${ver#v}
-          curl -sSfL "https://github.com/gitleaks/gitleaks/releases/download/${ver}/gitleaks_${v}_linux_x64.tar.gz" \
-            | tar -xz -C /usr/local/bin gitleaks
+          # 版本钉死 + 内联 sha256 校验（ADR-0011 遗留项落地：scorecard
+          # PinnedDependencies "downloadThenRun not pinned by hash"——
+          # latest-release 浮动下载改为显式版本+哈希双锚定）
+          GL_VER="8.30.1"
+          GL_SHA256="551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb"
+          curl -sSfL "https://github.com/gitleaks/gitleaks/releases/download/v${GL_VER}/gitleaks_${GL_VER}_linux_x64.tar.gz" -o /tmp/gitleaks.tgz
+          echo "${GL_SHA256}  /tmp/gitleaks.tgz" | sha256sum -c -
+          tar -xzf /tmp/gitleaks.tgz -C /usr/local/bin gitleaks
           gitleaks git . --redact --no-banner --exit-code 1
+
+      # uv 安装器换 SHA 锚定 action（ADR-0011 遗留项落地：curl|sh 不可哈希校验）
+      - name: Setup uv（版本钉死）
+        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        with:
+          version: "0.12.5"
 
       - name: Actions 自身安全审计 (zizmor)
         run: |
-          curl -LsSf https://astral.sh/uv/install.sh | sh
-          "$HOME/.local/bin/uvx" zizmor --persona regular --min-severity medium .
+          uvx zizmor@1.29.0 --persona regular --min-severity medium .
 
   gate:
     if: always()
