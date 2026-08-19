@@ -61,6 +61,9 @@ jobs:
     needs: [hygiene]
     runs-on: ubuntu-latest
     timeout-minutes: 5    # testing.yaml "gate<5min" 原则的硬上限
+    permissions:
+      contents: read        # job 级最小权限（对齐 .github gate.yml 模型）
+      pull-requests: read   # 仅 adr-required 步骤读取 PR 文件清单
     steps:
       - name: All required jobs green?
         env:
@@ -69,4 +72,32 @@ jobs:
           echo "$NEEDS"
           if echo "$NEEDS" | jq -e '[to_entries[] | select(.value.result != "success" and .value.result != "skipped")] | length > 0' >/dev/null; then
             echo "::error::有 job 未通过"; exit 1
+          fi
+
+      # adr-required（红队二批 ADR-0016 决策 1：README「修改规则」声明本检查但此前
+      # 无实现——声执不一致。对齐 .github gate.yml / agent-registry validate.yml 同模型）：
+      # 本仓整体即 C1 治理资产（全部 workflow 被业务仓 @v1 消费、README/zizmor 是治理声明）。
+      # 被引 ADR 的存在性不在 PR 上下文做：决策落盘在私有仓 agent-registry/decisions/，
+      # PR 上下文 GITHUB_TOKEN 无跨仓读权，注入 org secret = 向 PR 控制代码暴露凭据
+      # （zizmor secret-exposure 模型）——存在性由 .github drift-check.sh §10 每日后验。
+      - name: adr-required（C1 变更须引用 ADR）
+        if: github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: |
+          # --paginate：>100 文件的 PR 首页截断会把 C1 变更漏检成非 C1
+          FILES=$(gh api --paginate "repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/files?per_page=100" --jq '.[].filename')
+          if ! echo "$FILES" | grep -qE '^(\.github/|zizmor\.yml|README\.md)'; then
+            echo "非 C1 路径变更，跳过 adr-required"
+            exit 0
+          fi
+          # 词边界：NOTADR-0016junk 之类子串不得满足 ADR 引用要求
+          ADR_RE='\bADR-[0-9]{4}\b'
+          if { echo "$PR_TITLE"; echo "$PR_BODY"; } | grep -qE "$ADR_RE"; then
+            echo "OK adr-required: $( { echo "$PR_TITLE"; echo "$PR_BODY"; } | grep -oE "$ADR_RE" | sort -u | tr '\n' ' ')（存在性后验：.github drift-check §10）"
+          else
+            echo "::error::C1 路径变更但 PR 未引用任何 ADR-NNNN（README 修改规则：本仓变更属 C1 治理路径，须引用 ADR——落盘 agent-registry/decisions/）"
+            exit 1
           fi
