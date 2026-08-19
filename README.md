@@ -46,8 +46,13 @@ Cloudbird Software 组织的可复用工作流（唯一真相源）。业务仓�
 ## 版本策略
 
 - 业务仓一律引用 `@v1` 大版本指针。
-- 本仓发布：`git tag v1.0.0 && git push --tags`，然后 `git tag -f v1 v1.0.0 && git push -f origin v1` 移动指针。
-- 破坏性变更递增大版本（v2、v3…），旧指针保留给存量仓库。
+- 发布流程（红队 #6-A 加固，ADR-0016 决策 3）：
+  1. 合并变更 PR（gate + owner review）；
+  2. 打具体版本 tag：`git tag v1.X.Y <审阅过的合并SHA> && git push origin v1.X.Y`；
+  3. 移动指针：`git tag -f v1 v1.X.Y && git push -f origin v1`；
+  4. 复核不变式：`git ls-remote origin refs/tags/v1 refs/tags/v1.X.Y` 两行指向**同一 commit** 才算发布完成。
+- **可检测不变式**：`v1` 恒指向最高的 `v1.x.y` tag 的 commit。`.github` 治理仓 drift-check §11 每日校验此不变式——admin 经 release-tags ruleset bypass 强移 `v1`（或 `v1` 与最高 `v1.x.y` 脱钩）= 24h 内漂移报警，指针投毒不再是无痕通道。
+- 破坏性变更递增大版本（v2、v3…），旧指针保留给存量仓库；更高大版本指针遵循同一不变式（`vN` == 最高 `vN.x.y`）。
 
 ## 修改规则
 
