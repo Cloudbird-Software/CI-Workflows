@@ -91,23 +91,37 @@ jobs:
           PR_TITLE: ${{ github.event.pull_request.title }}
           PR_BODY: ${{ github.event.pull_request.body }}
         run: |
-          # 文件清单三防线（qodo review #2 #3）：
-          # --paginate：>100 文件的 PR 首页截断会把 C1 变更漏检成非 C1；
-          # rename 的 previous_filename 一并纳入——把 C1 资产改名移出受管路径
-          # 同样是 C1 变更（files API 对 rename 只在 previous_filename 暴露原路径）；
-          # files API 3000 文件硬上限：返回数 < changed_files = 清单不完整，
-          # fail-closed（宁误杀不放过——超大 PR 的 C1 判定完整性无法保证）。
+          # 文件清单三防线（qodo review #2 #3 + 追加：换行文件名绕过）：
+          # 分页拉全量；rename 的 previous_filename 一并纳入 C1 判定（C1 资产改名
+          # 移出受管路径同样是 C1 变更）；files API 3000 文件硬上限 fail-closed。
+          # 计数与 C1 匹配全部在 jq 内按 JSON 对象处理——Git 允许文件名含换行，
+          # 行流（grep -c / echo|grep）会被单文件多行虚增计数绕过截断检测
+          # （qodo review：Newline filenames bypass truncation，AR#22 同款）。
           PR_API="repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}"
-          FILES_API="$PR_API/files?per_page=100"
           CHANGED=$(gh api "$PR_API" --jq '.changed_files')
-          FILES_CUR=$(gh api --paginate "$FILES_API" --jq '.[].filename')
-          GOT=$(grep -c . <<<"$FILES_CUR" || true)
+          GOT=0
+          C1_HIT=0
+          PAGE=1
+          while :; do
+            PAGEJSON=$(gh api "$PR_API/files?per_page=100&page=$PAGE")
+            if ! jq -e 'type == "array"' <<<"$PAGEJSON" >/dev/null 2>&1; then
+              echo "::error::files API 第 $PAGE 页拉取失败——C1 判定完整性无法保证，fail-closed"
+              exit 1
+            fi
+            N=$(jq 'length' <<<"$PAGEJSON")
+            GOT=$((GOT+N))
+            if jq -e '[.[] | .filename, (.previous_filename // empty)]
+                     | any(test("^(\\.github/|zizmor\\.yml|README\\.md)"))'                <<<"$PAGEJSON" >/dev/null 2>&1; then
+              C1_HIT=1
+            fi
+            [[ $N -lt 100 ]] && break
+            PAGE=$((PAGE+1))
+          done
           if [ "$GOT" -lt "$CHANGED" ]; then
             echo "::error::PR 声明变更 $CHANGED 个文件但 files API 只返回 $GOT 个（3000 上限截断）——C1 判定完整性无法保证，fail-closed"
             exit 1
           fi
-          FILES=$( { echo "$FILES_CUR"; gh api --paginate "$FILES_API" --jq '[.[].previous_filename // empty][]'; } )
-          if ! echo "$FILES" | grep -qE '^(\.github/|zizmor\.yml|README\.md)'; then
+          if [ "$C1_HIT" -ne 1 ]; then
             echo "非 C1 路径变更，跳过 adr-required"
             exit 0
           fi
