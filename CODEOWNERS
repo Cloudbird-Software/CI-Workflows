@@ -1,0 +1,4 @@
+# CODEOWNERS —— CI-Workflows 是 C1 治理资产（全部业务仓 gate 经 @v1 消费本仓）：
+# 全部路径归 owner；变更走 PR + adr-required（ci.yml）+ owner review。
+# App（cloudbrid-agent）不在 owner 列表——机器身份不审自己的门禁。
+* @randypanding
