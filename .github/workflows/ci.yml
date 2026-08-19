@@ -118,7 +118,7 @@ jobs:
             N=$(jq 'length' <<<"$PAGEJSON")
             GOT=$((GOT+N))
             if jq -e '[.[] | .filename, (.previous_filename // empty)]
-                     | any(test("^(\\.github/|zizmor\\.yml|README\\.md)"))'                <<<"$PAGEJSON" >/dev/null 2>&1; then
+                     | any(test("^(\\.github/|zizmor\\.yml|README\\.md|CODEOWNERS)"))'                <<<"$PAGEJSON" >/dev/null 2>&1; then
               C1_HIT=1
             fi
             [[ $N -lt 100 ]] && break
