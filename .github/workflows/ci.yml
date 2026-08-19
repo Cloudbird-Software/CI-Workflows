@@ -66,8 +66,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5    # testing.yaml "gate<5min" 原则的硬上限
     permissions:
-      contents: read        # job 级最小权限（对齐 .github gate.yml 模型）
-      pull-requests: read   # 仅 adr-required 步骤读取 PR 文件清单
+      pull-requests: read   # job 级最小权限（coderabbit review：本 job 无 checkout，
+                            # pulls/files API 仅需 pull-requests:read——不留多余 contents:read）
     steps:
       - name: All required jobs green?
         env:
