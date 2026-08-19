@@ -1,6 +1,6 @@
-# zizmor 审计配置：本仓 ci.yml 自引用 ./.github/workflows/hygiene.yml@main（随 main 演进），
-# 不 pin SHA 是有意为之。
-rules:
-  unpinned-uses:
-    ignore:
-      - ci.yml
+# zizmor 审计配置。
+# 历史：曾豁免 ci.yml 的 unpinned-uses（当时 ci.yml 自引用本仓 workflow @main，
+# 随 main 演进不 pin SHA）。红队 #6-B 复核：该自引用已不存在，豁免沦为死配置
+# ——若保留，未来 ci.yml 引入未 pin 的 uses 会被静默放行（ADR-0016 决策 2）。
+# 现状：本仓全部 uses: 均已 pin commit SHA，无任何豁免需求。
+rules: {}
