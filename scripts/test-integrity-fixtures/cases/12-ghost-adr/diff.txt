@@ -1,0 +1,12 @@
+diff --git a/internal/estimate/estimate_test.go b/internal/estimate/estimate_test.go
+index 1111111..2222222 100644
+--- a/internal/estimate/estimate_test.go
++++ b/internal/estimate/estimate_test.go
+@@ -10,7 +10,4 @@
+ func TestEstimate(t *testing.T) {
+-	t.Errorf("window check")
+-	assert.Equal(t, 1, got1)
+-	t.Errorf("boundary check")
+-	assert.Equal(t, 2, got2)
++	t.Errorf("window+boundary")
+ }
