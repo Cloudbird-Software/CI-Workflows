@@ -1,0 +1,75 @@
+version: 1
+# 依赖供应链政策（机器可判定，P2-5 / ADR-0039）。dep-review.yml 运行时从本仓
+# @ 被调用 ref（github.workflow_ref 解析）读取本文件——policy、判定脚本
+# （scripts/dep-supply-chain-check.py）、workflow 定义三者同 ref 原子发布。
+# 阈值修订 = C1 变更（PR 须引用 ADR）。
+#
+# 判定语义：
+#   硬红     —— 任何情况都红（ADR 引用不豁免）：许可证非白名单、包不存在、包龄不足、
+#                lockfile↔manifest 不一致
+#   需 ADR   —— PR title/body 引用 ADR-NNNN 即过（人审留痕）：低下载量、单维护者、
+#                install/构建期脚本
+#   fail-closed —— registry/policy 拉取失败即红，不降级
+# 豁免通道（不得用于掩盖真实违规，drift-check 后验）：
+#   许可证误报 → 调用仓 allow-dependencies-licenses 输入按 PURL 精确豁免（ADR-0026）
+#   first-party → 本文件 first_party 节（组织自有包天然年轻零下载）
+
+license:
+  # 拒绝式白名单：dependency-review-action allow-licenses（deny-by-default）。
+  # 不在列表 = 红。原 deny 清单（AGPL-3.0/GPL-3.0/SSPL-1.0）语义被白名单包含（ADR-0039）。
+  mode: allowlist
+  allow:
+    - MIT
+    - Apache-2.0
+    - BSD-2-Clause
+    - BSD-3-Clause
+    - ISC
+    - 0BSD
+    - Zlib
+    - BSL-1.0
+    - Python-2.0
+    - MPL-2.0
+    - Unlicense
+    - CC0-1.0
+    - BlueOak-1.0.0
+    - BSD-2-Clause-Patent
+    - PostgreSQL
+
+package_maturity:
+  # 包龄=包首次发布时间至今（npm time.created / PyPI 最早 upload_time / Go proxy Time）。
+  min_age_days: 90                 # <90 天=硬红：幻觉抢注包（slopsquat）的直接防线
+  min_weekly_downloads: 100        # 周下载量低于阈值=需 ADR（npm/PyPI 可查，Go 无公开 API）
+  single_maintainer_needs_adr: true # 维护者=1 且无组织背书=需 ADR（仅 npm 可机器判定）
+  # 各判据适用生态（诚实声明机器可判定面，防"看似查了"）：
+  age_applies_to: [npm, pypi, go]
+  downloads_applies_to: [npm, pypi]
+  maintainer_applies_to: [npm]
+
+install_scripts:
+  # 新增依赖锁定版本含 preinstall/install/postinstall（npm manifest scripts），
+  # 或 PyPI 锁定版本仅有 sdist 无 wheel（安装即执行 setup.py）→ 需 ADR。
+  needs_adr: true
+  npm_script_keys: [preinstall, install, postinstall]
+
+lockfile:
+  # dep-review 静态一致性（名/精确版本级，安装步之前拦截）：
+  #   npm  package.json ↔ package-lock.json 根依赖
+  #   go   go.mod require ↔ go.sum 双哈希行
+  #   uv   pyproject.toml dependencies ↔ uv.lock
+  # 深度（哈希级）校验执法点=各仓安装命令（make setup），required_mode 矩阵可对账。
+  manifest_lock_consistency: true
+  frozen_install_required: true
+  required_mode:
+    npm: "npm ci"
+    pypi: "pip install --require-hashes"
+    uv: "uv sync --locked"
+    go: "go mod verify"
+
+first_party:
+  # 组织自有包豁免：跳过包龄/下载量/维护者/脚本判据（许可证检查不豁免）。
+  npm_scopes: ["@cloudbird-software"]
+  go_module_prefixes: ["github.com/Cloudbird-Software/"]
+  pypi_names: []
+
+# needs_adr 判据的 ADR 引用模式（词边界，同各仓 adr-required job）
+adr_reference_pattern: '\bADR-[0-9]{4}\b'
