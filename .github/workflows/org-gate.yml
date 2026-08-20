@@ -5,7 +5,7 @@ name: org-gate
 # 运行上下文 = 被审仓库（GITHUB_TOKEN/checkout/审计面均属被审仓）——被审 PR
 # 改不到这里的审判逻辑（#81 §3.3：PR 自我削弱路径关闭）。
 #
-# 结构：hygiene（复用本仓 hygiene.yml@钉 SHA，扫描被审仓）→ adr-required（C1
+# 结构：org-hygiene（复用本仓 hygiene.yml@钉 SHA，扫描被审仓；job 名带 org- 前缀防与被审仓本地 check 名冲突）→ org-adr-required（C1
 # 路径变更须引用真实 ADR，路径集=组织 C1 ∪ 业务仓 C1 保守并集）→ gate（严格
 # 聚合器 + 双轨比对注记）。升级钉点须走本仓版本发布流程（ADR-0046 决策 5）。
 
@@ -21,7 +21,7 @@ permissions:
   contents: read
 
 jobs:
-  hygiene:
+  org-hygiene:
     # 中心仓自身的 PR 会因 on: pull_request 触发本 workflow——跳过防重复
     # （中心仓自有 ci.yml 自测；ruleset 不作用于 CI-Workflows 自身）
     if: github.repository != 'Cloudbird-Software/CI-Workflows'
@@ -29,7 +29,7 @@ jobs:
     # 现行版）；hygiene 在被审仓上下文运行——checkout/扫描对象=被审仓库
     uses: Cloudbird-Software/CI-Workflows/.github/workflows/hygiene.yml@b43f5911059098175b0819c8c309c493674aa2c3
 
-  adr-required:
+  org-adr-required:
     # C1 路径变更须引用 ADR（与 .github 仓 gate.yml / 各业务仓 ci.yml 的 adr-required
     # 同语义，但本文件在中心仓——被审 PR 无法掏空）。路径集=组织 C1 ∪ 业务仓 C1
     # 保守并集（ADR-0046 决策 1）；分叉按 T3 观察期流程归因。
@@ -97,11 +97,11 @@ jobs:
           done
           exit $MISSING
 
-  gate:
+  org-gate:
     # 严格聚合器（ADR-0032：skipped≠success，仅 success 放行；本 workflow 上游
     # 无事件条件 job，无 EXPECTED_SKIP）+ 双轨比对注记（T3 观察期数据积累）
     if: always() && github.repository != 'Cloudbird-Software/CI-Workflows'
-    needs: [hygiene, adr-required]
+    needs: [org-hygiene, org-adr-required]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
