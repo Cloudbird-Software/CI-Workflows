@@ -34,8 +34,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           PR_TITLE: ${{ github.event.pull_request.title }}
           PR_BODY: ${{ github.event.pull_request.body }}
+          PR_API: "repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}"   # zizmor：模板值经 env 间接引用
         run: |
-          PR_API="repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}"
           CHANGED=$(gh api "$PR_API" --jq '.changed_files')
           GOT=0
           C1_HIT=0
