@@ -1,8 +1,0 @@
-diff --git a/web/src/app.test.ts b/web/src/app.test.ts
-index aaaa000..bbbb111 100644
---- a/web/src/app.test.ts
-+++ b/web/src/app.test.ts
-@@ -10,0 +11,3 @@
-+it.only("focus regression", () => {
-+  expect(focus()).toBe(true);
-+});
