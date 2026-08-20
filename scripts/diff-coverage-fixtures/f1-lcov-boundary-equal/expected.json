@@ -1,0 +1,16 @@
+{
+ "format": "lcov",
+ "repo": "template-service",
+ "pass": true,
+ "pct": 80.0,
+ "denominator": 5,
+ "covered": 4,
+ "exempt_files": 1,
+ "changed_files": 2,
+ "uncovered": {
+  "src/calc.ts": [
+   14
+  ]
+ },
+ "no_data": []
+}

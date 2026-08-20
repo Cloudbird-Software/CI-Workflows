@@ -1,0 +1,17 @@
+{
+ "format": "cobertura",
+ "repo": "demo-py",
+ "threshold_input": 90.0,
+ "pass": true,
+ "pct": 90.0,
+ "denominator": 10,
+ "covered": 9,
+ "exempt_files": 0,
+ "changed_files": 1,
+ "uncovered": {
+  "app/svc.py": [
+   14
+  ]
+ },
+ "no_data": []
+}

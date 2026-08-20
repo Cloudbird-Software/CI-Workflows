@@ -1,0 +1,36 @@
+{
+ "format": "go",
+ "repo": "mutual",
+ "pass": false,
+ "pct": 79.0,
+ "denominator": 100,
+ "covered": 79,
+ "exempt_files": 2,
+ "changed_files": 3,
+ "uncovered": {
+  "internal/service.go": [
+   99,
+   100,
+   101,
+   102,
+   103,
+   104,
+   105,
+   106,
+   107,
+   108,
+   109,
+   110,
+   111,
+   112,
+   113,
+   114,
+   115,
+   116,
+   117,
+   118,
+   119
+  ]
+ },
+ "no_data": []
+}
