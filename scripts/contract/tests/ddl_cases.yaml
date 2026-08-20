@@ -1,0 +1,183 @@
+# T7 DDL 分类器预标注 fixture（工作卡 #89 测试方法 T7）
+# 每条: name/format(sql|alembic)/content/expected(单标签或列表)/kinds(destructive 时必填)。
+# 分布要求: destructive ≥4、additive ≥4、边界（tricky case）≥4，共 16 条。
+# 分类规则落盘: CI-Workflows scripts/contract/contract_check.py（ADR-0038 决策 3）
+cases:
+  # ---------- destructive ----------
+  - name: sql-drop-column
+    format: sql
+    content: |
+      ALTER TABLE orders DROP COLUMN internal_note;
+    expected: destructive
+    kinds: [DROP_COLUMN]
+  - name: sql-alter-column-type
+    format: sql
+    content: |
+      ALTER TABLE items ALTER COLUMN size TYPE integer USING size::integer;
+    expected: destructive
+    kinds: [ALTER_TYPE]
+  - name: sql-add-notnull-no-default
+    format: sql
+    content: |
+      ALTER TABLE users ADD COLUMN role varchar(20) NOT NULL;
+    expected: destructive
+    kinds: [ADD_NOTNULL_NO_DEFAULT]
+  - name: sql-drop-table
+    format: sql
+    content: |
+      DROP TABLE legacy_audit;
+    expected: destructive
+    kinds: [DROP_TABLE]
+  - name: sql-set-not-null
+    format: sql
+    content: |
+      ALTER TABLE items ALTER COLUMN size SET NOT NULL;
+    expected: destructive
+    kinds: [SET_NOT_NULL]
+  - name: alembic-drop-column
+    format: alembic
+    content: |
+      def upgrade() -> None:
+          op.drop_column("items", "legacy")
+      def downgrade() -> None:
+          op.add_column("items", sa.Column("legacy", sa.Text(), nullable=True))
+    expected: destructive
+    kinds: [DROP_COLUMN]
+  - name: alembic-alter-type-and-rename
+    format: alembic
+    content: |
+      def upgrade() -> None:
+          op.alter_column("items", "size", type_=sa.Integer())
+          op.alter_column("items", "size", new_column_name="size_px")
+      def downgrade() -> None:
+          op.alter_column("items", "size_px", type_=sa.Text())
+    expected: destructive
+    kinds: [ALTER_TYPE, RENAME]
+  - name: alembic-execute-embeds-drop
+    format: alembic
+    content: |
+      def upgrade() -> None:
+          op.execute("ALTER TABLE t DROP COLUMN c")
+      def downgrade() -> None:
+          op.execute("ALTER TABLE t ADD COLUMN c text")
+    expected: destructive
+    kinds: ["EXEC:DROP_COLUMN"]
+
+  # ---------- additive ----------
+  - name: sql-create-table
+    format: sql
+    content: |
+      CREATE TABLE audit_log (
+        id bigint PRIMARY KEY,
+        note text
+      );
+    expected: additive
+  - name: sql-add-nullable-column
+    format: sql
+    content: |
+      ALTER TABLE items ADD COLUMN priority integer;
+    expected: additive
+  - name: sql-add-notnull-with-default
+    format: sql
+    content: |
+      ALTER TABLE users ADD COLUMN status varchar(10) NOT NULL DEFAULT 'active';
+    expected: additive
+  - name: sql-add-constraint-not-valid
+    format: sql
+    content: |
+      ALTER TABLE items ADD CONSTRAINT items_size_check CHECK (size >= 0) NOT VALID;
+    expected: additive
+  - name: sql-create-index
+    format: sql
+    content: |
+      CREATE INDEX ix_items_priority ON items (priority);
+    expected: additive
+  - name: alembic-add-nullable-column
+    format: alembic
+    content: |
+      def upgrade() -> None:
+          op.add_column("items", sa.Column("priority", sa.Integer(), nullable=True))
+      def downgrade() -> None:
+          op.drop_column("items", "priority")
+    expected: additive
+  - name: alembic-create-table
+    format: alembic
+    content: |
+      def upgrade() -> None:
+          op.create_table(
+              "audit_log",
+              sa.Column("id", sa.Integer(), primary_key=True),
+              sa.Column("note", sa.Text(), nullable=True),
+          )
+      def downgrade() -> None:
+          op.drop_table("audit_log")
+    expected: additive
+
+  # ---------- 边界 / tricky ----------
+  - name: sql-enum-add-value
+    format: sql
+    content: |
+      ALTER TYPE color ADD VALUE 'ultraviolet';
+    expected: additive
+  - name: sql-drop-default
+    format: sql
+    content: |
+      ALTER TABLE users ALTER COLUMN status DROP DEFAULT;
+    expected: destructive
+    kinds: [DROP_DEFAULT]
+  - name: sql-mysql-modify-column
+    format: sql
+    content: |
+      ALTER TABLE items MODIFY COLUMN size BIGINT;
+    expected: destructive
+    kinds: [ALTER_TYPE]
+  - name: sql-add-constraint-immediate
+    format: sql
+    content: |
+      ALTER TABLE items ADD CONSTRAINT items_size_check CHECK (size >= 0);
+    expected: destructive
+    kinds: [ADD_CONSTRAINT]
+  - name: sql-truncate
+    format: sql
+    content: |
+      TRUNCATE TABLE staging_events;
+    expected: destructive
+    kinds: [TRUNCATE]
+  - name: sql-rename-column
+    format: sql
+    content: |
+      ALTER TABLE items RENAME COLUMN size TO size_px;
+    expected: destructive
+    kinds: [RENAME]
+  - name: sql-comment-and-dml-neutral
+    format: sql
+    content: |
+      -- 数据回填（DML 非 DDL）
+      UPDATE items SET priority = 0 WHERE priority IS NULL;
+      COMMENT ON COLUMN items.priority IS '排序权重';
+    expected: neutral
+  - name: alembic-add-notnull-column-with-server-default
+    format: alembic
+    content: |
+      def upgrade() -> None:
+          op.add_column("items", sa.Column(
+              "flag", sa.Boolean(), nullable=False, server_default=sa.false()))
+      def downgrade() -> None:
+          op.drop_column("items", "flag")
+    expected: additive
+  - name: alembic-relax-alter-neutral-plus-drop-separate
+    format: alembic
+    content: |
+      def upgrade() -> None:
+          op.alter_column("items", "note", nullable=True)
+          op.drop_index("ix_items_priority", table_name="items")
+      def downgrade() -> None:
+          op.create_index("ix_items_priority", "items", ["priority"])
+    expected: [destructive, additive]
+    kinds: [DROP_CONSTRAINT]
+  - name: sql-unclassified-ddl-fail-closed
+    format: sql
+    content: |
+      ALTER TABLE items SET (autovacuum_enabled = false);
+    expected: destructive
+    kinds: [UNCLASSIFIED_DDL]
