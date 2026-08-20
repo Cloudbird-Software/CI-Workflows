@@ -1,0 +1,114 @@
+name: test-integrity
+# P2-1 测试篡改检测门（ADR-0035 / .github #86）。业务仓钉 hash 复用（hygiene 同款）：
+#   test-integrity:
+#     uses: Cloudbird-Software/CI-Workflows/.github/workflows/test-integrity.yml@<sha>
+#   gate:
+#     needs: [..., test-integrity]
+# 四条规则：TI-R1 测试文件删除 / TI-R2 断言净下降 / TI-R3 新增抑制标记 /
+# TI-R4 期望值改写（require_adr）。命中即红；PR 引用 ADR-NNNN 可豁免（计数入账）。
+# fail-closed：diff/policy/ADR 清单读不到=红。非 PR 事件 n/a-success（推送面无
+# base...head 语义），调用方 gate 无需登记 EXPECTED_SKIP（ADR-0032/0035）。
+on:
+  workflow_call:
+    inputs:
+      policy-repo:
+        type: string
+        default: "Cloudbird-Software/.github"   # 规则/阈值声明来源（governance/policy/testing.yaml）
+      policy-ref:
+        type: string
+        default: "main"                          # C1 保护的默认分支；调用方可钉 SHA 提高不可变性
+
+permissions: {}
+
+jobs:
+  test-integrity:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5   # testing.yaml "gate<5min" 原则的硬上限
+    permissions:
+      contents: read   # 双仓只读 checkout（调用仓 diff + 本仓检测器）+ 公开 agent-registry ADR 清单
+    steps:
+      - name: 非 PR 事件（n/a-success）
+        if: github.event_name != 'pull_request'
+        run: |
+          echo "::notice::test-integrity 只对 pull_request 事件判定（推送面无 base...head 的 PR diff 语义，post-merge 面由 P2-6 #91 承接）——本事件 n/a（success），调用方 gate 无需登记 EXPECTED_SKIP（ADR-0032/ADR-0035）"
+
+      - name: 检测器来源钉定守卫（fail-closed）
+        if: github.event_name == 'pull_request'
+        env:
+          ACTION_REF: ${{ github.action_ref }}
+        run: |
+          set -eu
+          [ -n "$ACTION_REF" ] || { echo "::error::TI-FC github.action_ref 缺失——检测器无法与调用方钉的 ref 同源（ADR-0035 fail-closed）"; exit 1; }
+          echo "检测器来源 = CI-Workflows@$ACTION_REF（与调用方 uses: 同 ref）"
+
+      - name: Harden Runner (egress audit)
+        if: github.event_name == 'pull_request'
+        uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c # v2.21.0
+        with:
+          egress-policy: audit
+
+      - name: Checkout 调用仓（全历史——base...head diff 需要）
+        if: github.event_name == 'pull_request'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Checkout CI-Workflows 检测器（与调用方钉的 ref 同源）
+        if: github.event_name == 'pull_request'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: Cloudbird-Software/CI-Workflows
+          ref: ${{ github.action_ref }}
+          path: ciw
+          persist-credentials: false
+
+      - name: 拉 policy（testing.yaml#test_integrity，fail-closed）
+        if: github.event_name == 'pull_request'
+        env:
+          POLICY_REPO: ${{ inputs.policy-repo }}
+          POLICY_REF: ${{ inputs.policy-ref }}
+        run: |
+          set -eu
+          URL="https://raw.githubusercontent.com/${POLICY_REPO}/${POLICY_REF}/governance/policy/testing.yaml"
+          curl -fsSLo /tmp/testing-policy.yaml "$URL" || {
+            echo "::error::TI-FC policy 拉取失败：$URL（检测器读不到=红——ADR-0035 fail-closed）"; exit 1; }
+          python3 - <<'PY'
+          import os, sys
+          try:
+              import yaml
+          except Exception:
+              print("::error::TI-FC PyYAML 不可用——policy 不可解析（fail-closed）"); sys.exit(1)
+          try:
+              doc = yaml.safe_load(open("/tmp/testing-policy.yaml", encoding="utf-8")) or {}
+          except Exception as e:
+              print(f"::error::TI-FC policy YAML 解析失败：{e}（fail-closed）"); sys.exit(1)
+          ti = doc.get("test_integrity")
+          if not isinstance(ti, dict) or not ti:
+              print("::notice::policy 无 test_integrity 节——使用检测器内置缺省（与声明同值，ADR-0035）")
+              sys.exit(0)
+          def emit(key, val):
+              if val:
+                  with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as f:
+                      f.write(f"{key}={val}\n")
+          rules = {r.get("id"): r for r in (ti.get("rules") or []) if isinstance(r, dict)}
+          sev = (rules.get("TI-R4") or {}).get("severity")
+          if sev:
+              emit("TI_R4_SEVERITY", str(sev))
+          pats = ti.get("patterns") or {}
+          emit("TI_TEST_FILE_RE", pats.get("test_file"))
+          emit("TI_ASSERT_RE", pats.get("assertion"))
+          emit("TI_SUPPRESS_RE", pats.get("suppression"))
+          emit("TI_META_PATH_RE", pats.get("non_source"))
+          print("policy test_integrity 已载入（rules=%s）" % ",".join(sorted(rules)) )
+          PY
+
+      - name: test-integrity（P2-1 测试篡改检测）
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+          GH_TOKEN: ${{ github.token }}
+        run: bash ciw/scripts/test-integrity.sh
