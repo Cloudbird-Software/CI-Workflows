@@ -1,0 +1,116 @@
+name: test-integrity
+# P2-1 测试篡改检测门（ADR-0035 / .github #86）。业务仓钉 hash 复用（hygiene 同款）：
+#   test-integrity:
+#     uses: Cloudbird-Software/CI-Workflows/.github/workflows/test-integrity.yml@<钉住 ref>
+#   gate:
+#     needs: [..., test-integrity]
+# 四条规则：TI-R1 测试文件删除 / TI-R2 断言净下降 / TI-R3 新增抑制标记 /
+# TI-R4 期望值改写（require_adr）。命中即红；PR 引用 ADR-NNNN 可豁免（计数入账）。
+# fail-closed：diff/policy/ADR 清单读不到=红。非 PR 事件 n/a-success（推送面无
+# base...head 语义，post-merge 面由 P2-6 #91 承接）——调用方 gate 无需登记
+# EXPECTED_SKIP（ADR-0032/0035；与 diff-coverage 的 job 级 if+登记方案二选一）。
+#
+# 门禁三要素均来自被审 PR 改不动的位置（#81 §3.3，同 ADR-0037 决策 6）：
+#   1. workflow 本体——caller 钉住 ref 引用本文件；
+#   2. 执法工具——caller 以 detector-ref 输入（=uses: 的 pin）checkout CI-Workflows
+#      同源副本（不取 caller 仓内副本）。注：github.action_ref 实测在 reusable 上下文
+#      随步骤动作漂移、github.workflow_ref 返回 caller 自己的 workflow ref
+#      （refs/pull/N/merge），均不可用于钉源——显式输入是唯一可靠机制；
+#   3. 规则/阈值——.github main 的 governance/policy/testing.yaml#test_integrity
+#      （C1 保护；缺节时用检测器内置同值缺省，拉取失败即红）。
+on:
+  workflow_call:
+    inputs:
+      policy-repo:
+        type: string
+        default: "Cloudbird-Software/.github"   # 规则/阈值声明来源
+      policy-ref:
+        type: string
+        default: "main"                          # C1 保护的默认分支；调用方可钉 SHA 提高不可变性
+      detector-ref:
+        type: string
+        default: ""   # 检测器来源（CI-Workflows 的 commit SHA/tag）——必须与 uses: 的 pin 同值；
+                       # 空=红（fail-closed）。注：github.action_ref 实测在 reusable 上下文随
+                       # 步骤动作漂移、github.workflow_ref 返回的是 caller 自己的 workflow ref
+                       #（refs/pull/N/merge），均不可用于钉源——显式输入是唯一可靠机制
+
+permissions: {}   # 顶层零权限默认（check/hygiene 同款）；job 级显式最小权限
+
+jobs:
+  test-integrity:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5   # testing.yaml "gate<5min" 原则的硬上限
+    permissions:
+      contents: read   # 双仓只读 checkout（调用仓 diff + 本仓检测器）+ GITHUB_TOKEN 读公开仓 policy/ADR 清单
+    steps:
+      - name: 非 PR 事件（n/a-success）
+        if: github.event_name != 'pull_request'
+        run: |
+          echo "::notice::test-integrity 只对 pull_request 事件判定（推送面无 base...head 的 PR diff 语义）——本事件 n/a（success），调用方 gate 无需登记 EXPECTED_SKIP（ADR-0032/ADR-0035）"
+
+      - name: Harden Runner (egress audit)
+        if: github.event_name == 'pull_request'
+        uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c # v2.21.0
+        with:
+          egress-policy: audit
+
+      - name: Checkout 调用仓（全历史——base...head diff 需要）
+        if: github.event_name == 'pull_request'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: 检测器来源钉定守卫（fail-closed）
+        if: github.event_name == 'pull_request'
+        env:
+          DETECTOR_REF: ${{ inputs.detector-ref }}
+        run: |
+          set -eu
+          [ -n "$DETECTOR_REF" ] || { echo "::error::TI-FC detector-ref 输入为空——检测器来源未钉（ADR-0035 fail-closed）"; exit 1; }
+          echo "检测器来源 = CI-Workflows@$DETECTOR_REF（须与 uses: 的 pin 同值）"
+
+      - name: Checkout 检测器（CI-Workflows 同 ref，不取 caller 仓内副本）
+        if: github.event_name == 'pull_request'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: Cloudbird-Software/CI-Workflows
+          ref: ${{ inputs.detector-ref }}
+          path: ciw
+          persist-credentials: false
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        if: github.event_name == 'pull_request'
+        with:
+          python-version: "3.12"
+
+      - name: 安装钉哈希依赖（PyYAML，版本+sha256 双锚定）
+        if: github.event_name == 'pull_request'
+        run: pip install -q --require-hashes -r ciw/.github/requirements-test-integrity.txt
+
+      - name: T8 自测（每次执法前 fixture 校验——工具自身算错比漏检更糟）
+        if: github.event_name == 'pull_request'
+        run: bash ciw/scripts/test-integrity-fixtures/run.sh
+
+      - name: 拉取 policy（testing.yaml#test_integrity，fail-closed）
+        if: github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          POLICY_REPO: ${{ inputs.policy-repo }}
+          POLICY_REF: ${{ inputs.policy-ref }}
+        run: |
+          set -euo pipefail
+          gh api "repos/${POLICY_REPO}/contents/governance/policy/testing.yaml?ref=${POLICY_REF}" \
+            --jq .content | base64 -d > policy-testing.yaml
+          test -s policy-testing.yaml || { echo "::error::TI-FC policy 内容为空（fail-closed）"; exit 1; }
+          python3 ciw/scripts/parse-test-integrity-policy.py policy-testing.yaml
+
+      - name: test-integrity（P2-1 测试篡改检测）
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+          GH_TOKEN: ${{ github.token }}
+        run: bash ciw/scripts/test-integrity.sh

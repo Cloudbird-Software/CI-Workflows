@@ -1,0 +1,8 @@
+diff --git a/internal/probe/probe_test.go b/internal/probe/probe_test.go
+index aaaaaaa..bbbbbbb 100644
+--- a/internal/probe/probe_test.go
++++ b/internal/probe/probe_test.go
+@@ -5,0 +6,3 @@
++func TestProbeRetry(t *testing.T) {
++	t.Skip("flaky on runner-2")
++}

@@ -77,9 +77,24 @@ jobs:
           python3 scripts/dep-supply-chain-check.py --policy policy/dependency-supply-chain.yaml --validate-only
           python3 scripts/dep-supply-chain-check.py --self-test
 
+  test-integrity-selftest:
+    # T8 单元级自检（ADR-0035 / .github #86）：fixture 预标注 vs 检测器输出全比对
+    # （断言计数/skip 计数/文件删除判定）。本 job 为 PR 级回归兜底；test-integrity.yml
+    # 每次执法前也会前置跑同一 fixture 集（同 ADR-0037 --self-test 模式）。
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: T8 fixtures（15 case：四类篡改 + 正常 + 边界）
+        run: bash scripts/test-integrity-fixtures/run.sh
+
   gate:
     if: always()
-    needs: [hygiene]
+    needs: [hygiene, test-integrity-selftest]
     runs-on: ubuntu-latest
     timeout-minutes: 5    # testing.yaml "gate<5min" 原则的硬上限
     permissions:
@@ -94,7 +109,7 @@ jobs:
           # 严格断言（P1-3 .github#84 / ADR-0032）：skipped≠success——本仓上游无事件
           # 条件 job（两种事件都须真跑），无结构性预期跳过，非 success 一律红
           if echo "$NEEDS" | jq -e '[to_entries[] | select(.value.result != "success")] | length > 0' >/dev/null; then
-            echo "::error::hygiene 未通过（skipped≠success：严格断言，非 success 一律红——ADR-0032）"; exit 1
+            echo "::error::上游 job 未通过（skipped≠success：严格断言，非 success 一律红——ADR-0032）"; exit 1
           fi
 
       # adr-required（红队二批 ADR-0016 决策 1：README「修改规则」声明本检查但此前

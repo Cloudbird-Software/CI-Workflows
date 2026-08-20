@@ -1,0 +1,8 @@
+diff --git a/internal/qdl/duration_test.go b/internal/qdl/duration_test.go
+index ccccccc..ddddddd 100644
+--- a/internal/qdl/duration_test.go
++++ b/internal/qdl/duration_test.go
+@@ -8,2 +8,2 @@
+-	want := uint64(5)
++	want := uint64(7)
+ 	got := Parse("7s")
