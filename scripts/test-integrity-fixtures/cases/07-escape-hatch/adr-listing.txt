@@ -1,0 +1,2 @@
+ADR-0034-required-check-liveness-and-pr-stuck-detection.md
+ADR-0035-test-integrity-gate.md
