@@ -1,4 +1,0 @@
-diff --git a/internal/ledger/events_test.go b/internal/ledger/events2_test.go
-similarity index 100%
-rename from internal/ledger/events_test.go
-rename to internal/ledger/events2_test.go
