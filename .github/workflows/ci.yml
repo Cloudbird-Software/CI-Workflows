@@ -67,10 +67,20 @@ jobs:
         run: |
           uvx zizmor@1.29.0 --persona regular --min-severity medium .
 
+      # P2-5（ADR-0039）：dep policy 落盘 + gate 可解析校验。schema 校验保证
+      # policy/dependency-supply-chain.yaml 可被 dep-review 消费（阈值修订=C1
+      # 变更须引用 ADR）；self-test 为 #90 T6 单元级证明——同一成熟依赖在
+      # min_age_days=90 判绿、10000 判红，钉死"判定消费 policy 阈值而非硬编码"。
+      - name: dep policy 可解析校验 + self-test (ADR-0039)
+        run: |
+          python3 -m pip install --disable-pip-version-check --quiet pyyaml==6.0.3
+          python3 scripts/dep-supply-chain-check.py --policy policy/dependency-supply-chain.yaml --validate-only
+          python3 scripts/dep-supply-chain-check.py --self-test
+
   test-integrity-selftest:
     # T8 单元级自检（ADR-0035 / .github #86）：fixture 预标注 vs 检测器输出全比对
-    # （断言计数/skip 计数/文件删除判定），检测器或模式任何变更先在本仓 PR 自证
-    # 计数正确，再被业务仓钉 hash 消费——计数逻辑回归不依赖人工。
+    # （断言计数/skip 计数/文件删除判定）。本 job 为 PR 级回归兜底；test-integrity.yml
+    # 每次执法前也会前置跑同一 fixture 集（同 ADR-0037 --self-test 模式）。
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
