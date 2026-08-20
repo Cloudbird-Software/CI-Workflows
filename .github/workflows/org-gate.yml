@@ -59,10 +59,15 @@ jobs:
             fi
             N=$(jq 'length' <<<"$PAGEJSON")
             GOT=$((GOT+N))
-            if jq -e '[.[] | .filename, (.previous_filename // empty)]
-                     | any(test("^(governance/|standards/|scripts/|\.github/|CODEOWNERS|profile/|AGENTS\.md|Makefile|docs/|zizmor\.yml|\.dependency-cruiser\.cjs)"))' <<<"$PAGEJSON" >/dev/null 2>&1; then
-              C1_HIT=1
+            # fail-closed（实测教训：正则单反斜杠致 jq 编译错误被吞→静默按非 C1 跳过）：
+            # 编译/求值错误（exit 5 等）显式判红，只有明确求值结果才进分支
+            VERDICT=$(jq -e '[.[] | .filename, (.previous_filename // empty)]
+                     | any(test("^(governance/|standards/|scripts/|\\.github/|CODEOWNERS|profile/|AGENTS\\.md|Makefile|docs/|zizmor\\.yml|\\.dependency-cruiser\\.cjs)"))' <<<"$PAGEJSON" 2>/tmp/c1regex.err)
+            RC=$?
+            if [[ $RC -gt 1 ]]; then
+              echo "::error::C1 正则求值失败（jq exit $RC）：$(head -1 /tmp/c1regex.err)——fail-closed"; exit 1
             fi
+            [[ "$VERDICT" == "true" ]] && C1_HIT=1
             [[ $N -lt 100 ]] && break
             PAGE=$((PAGE+1))
           done
