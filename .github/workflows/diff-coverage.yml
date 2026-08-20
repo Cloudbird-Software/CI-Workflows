@@ -1,0 +1,130 @@
+# diff coverage 门槛（ADR-0037，P2-3，.github issue #88）：本次 PR 变更行的覆盖率
+# ≥ policy 阈值（非全局覆盖率——全局口径按 testing.yaml X-01 继续拒绝）。
+#
+# 业务仓接入（gate needs 链，随 P2-1/P2-2 批次）：
+#   diff-coverage:
+#     uses: Cloudbird-Software/CI-Workflows/.github/workflows/diff-coverage.yml@<钉住 ref>
+#     with:
+#       coverage-artifact: reports-ubuntu-latest   # check.yml 上传的覆盖率工件名
+#   gate:
+#     needs: [hygiene, check, diff-coverage, ...]
+#     # push 事件按 ADR-0032（standards/automation/required-check-chains.md 规则 2）
+#     # 在 EXPECTED_SKIP 登记 diff-coverage（本 job 仅 PR 事件执法）。
+#
+# 门禁三要素均来自被审 PR 改不动的位置（#81 §3.3 原则，ADR-0037 决策 6）：
+#   1. workflow 本体——caller 以钉住 ref 引用本文件；
+#   2. 执法工具——从本 workflow 同 ref checkout CI-Workflows，不取 caller 仓内副本
+#      （被审 PR 在自己仓里放一份 weaken 过的 diff-coverage.py 无效）；
+#   3. 阈值/豁免清单——读 .github main 的 governance/policy/testing.yaml
+#      （C1 路径：adr-required + owner-only review——业务仓 PR 作者无权扩大豁免/改阈值）。
+name: diff-coverage
+on:
+  workflow_call:
+    inputs:
+      coverage-artifact:
+        description: check job 上传的覆盖率工件名（check.yml 缺省 reports-<runs-on>）
+        type: string
+        default: reports-ubuntu-latest
+      coverage-format:
+        description: lcov | istanbul | cobertura | go | auto
+        type: string
+        default: auto
+      coverage-file:
+        description: 覆盖率文件路径（相对仓库根；空=auto 搜索 coverage/lcov.info 等）
+        type: string
+        default: ""
+      threshold:
+        description: 按仓覆盖阈值——非空时须与 policy repo_overrides 登记一致，否则红
+        type: string
+        default: ""
+
+permissions: {}   # 顶层零权限默认（check/hygiene 同款）；job 级显式最小权限
+
+jobs:
+  diff-coverage:
+    # 仅 PR 事件执法（push 面由 caller 按 ADR-0032 EXPECTED_SKIP 登记结构性跳过）
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5   # testing.yaml "gate<5min" 原则的硬上限
+    permissions:
+      contents: read   # checkout caller 全历史求 merge-base + GITHUB_TOKEN 读公开仓
+                       # .github policy（ADR-0020 全仓公开后 token 可读，ADR-0021 先例）
+    steps:
+      - name: Harden Runner (egress audit)
+        uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c # v2.21.0
+        with:
+          egress-policy: audit
+      - name: Checkout caller（全历史，求 merge-base）
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: 解析执法工具 ref（本 workflow 被调用时的钉住 ref——工具与门禁同源）
+        id: toolref
+        env:
+          WORKFLOW_REF: ${{ github.workflow_ref }}
+        run: |
+          set -euo pipefail
+          # workflow_ref 形如 "owner/CI-Workflows/.github/workflows/diff-coverage.yml@refs/tags/v1"
+          REF="${WORKFLOW_REF##*@}"
+          case "$REF" in
+            refs/tags/*|refs/heads/*|[0-9a-f]*) ;;
+            *) echo "::error::无法从 workflow_ref 解析工具 ref: $WORKFLOW_REF"; exit 1 ;;
+          esac
+          echo "ref=$REF" >> "$GITHUB_OUTPUT"
+          echo "tool ref: $REF（与 caller 钉住的 workflow 同源）"
+      - name: Checkout 执法工具（CI-Workflows 同 ref，不取 caller 仓内副本）
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: Cloudbird-Software/CI-Workflows
+          ref: ${{ steps.toolref.outputs.ref }}
+          path: tool
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+      - name: 安装钉哈希依赖（PyYAML，版本+sha256 双锚定——.github requirements-gate.txt 同款）
+        run: pip install -q --require-hashes -r tool/.github/requirements-diff-coverage.txt
+      - name: T6 自测（每次执法前 fixture 校验——工具自身算错比漏检更糟）
+        run: python3 tool/scripts/diff-coverage.py --self-test
+      - name: 拉取 policy（阈值/豁免清单真源=.github main；失败 fail-closed）
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh api repos/Cloudbird-Software/.github/contents/governance/policy/testing.yaml \
+            --jq .content | base64 -d > policy-testing.yaml
+          test -s policy-testing.yaml
+          grep -q "^diff_coverage:" policy-testing.yaml \
+            || { echo "::error::policy 缺 diff_coverage 段（ADR-0037）"; exit 1; }
+          echo "policy 拉取 OK（$(wc -l < policy-testing.yaml) 行）"
+      # 工件缺失（check 未产覆盖率数据）不在此步骤红——由工具按 fail-closed 语义
+      # 给出精确错误（非豁免变更行存在 + 无覆盖率数据 = 红，ADR-0037 决策 5）
+      - name: 下载覆盖率工件（check job 产出）
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: ${{ inputs.coverage-artifact }}
+          path: cov-unpack
+        continue-on-error: true
+      - name: 计算 diff coverage（变更行 ∩ 覆盖行）
+        env:
+          BASE_REF: ${{ github.base_ref }}
+          COV_FORMAT: ${{ inputs.coverage-format }}
+          COV_FILE: ${{ inputs.coverage-file }}
+          THRESHOLD: ${{ inputs.threshold }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          BASE_SHA=$(git merge-base "origin/$BASE_REF" HEAD)
+          echo "merge-base $BASE_REF -> ${BASE_SHA:0:8}"
+          git diff --no-color --no-ext-diff -M -U0 "$BASE_SHA" HEAD > diff.patch
+          # 覆盖率工件内容平铺回仓库根相对路径（check.yml 上传 reports/ + coverage/）
+          if [ -d cov-unpack ]; then cp -r cov-unpack/. ./; fi
+          set -- tool/scripts/diff-coverage.py \
+            --diff-file diff.patch \
+            --policy policy-testing.yaml \
+            --repo "${REPO##*/}"
+          if [ -n "$COV_FORMAT" ] && [ "$COV_FORMAT" != auto ]; then set -- "$@" --format "$COV_FORMAT"; fi
+          if [ -n "$COV_FILE" ]; then set -- "$@" --coverage-file "$COV_FILE"; fi
+          if [ -n "$THRESHOLD" ]; then set -- "$@" --threshold "$THRESHOLD"; fi
+          python3 "$@"
