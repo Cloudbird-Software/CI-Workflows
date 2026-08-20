@@ -25,7 +25,6 @@ jobs:
     # 中心仓自身的 PR 会因 on: pull_request 触发本 workflow——跳过防重复
     # （中心仓自有 ci.yml 自测；ruleset 不作用于 CI-Workflows 自身）
     if: github.repository != 'Cloudbird-Software/CI-Workflows'
-    uses:
     # 钉 commit hash（zizmor unpinned-uses；hash=本仓 main b43f5911，含 hygiene.yml
     # 现行版）；hygiene 在被审仓上下文运行——checkout/扫描对象=被审仓库
     uses: Cloudbird-Software/CI-Workflows/.github/workflows/hygiene.yml@b43f5911059098175b0819c8c309c493674aa2c3
