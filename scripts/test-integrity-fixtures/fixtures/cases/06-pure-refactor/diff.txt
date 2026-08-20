@@ -1,7 +1,0 @@
-diff --git a/internal/estimate/estimate.go b/internal/estimate/estimate.go
-index 1234567..89abcde 100644
---- a/internal/estimate/estimate.go
-+++ b/internal/estimate/estimate.go
-@@ -20,2 +20,2 @@
--func estimate(n int) int { return n * 2 }
-+func estimate(n int) int { return n << 1 }
