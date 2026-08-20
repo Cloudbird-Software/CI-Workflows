@@ -1,0 +1,4 @@
+exit=1
+rules=TI-R1,TI-R2
+contains=TI-R1 测试文件被删除
+contains=net=-1
