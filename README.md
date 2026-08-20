@@ -12,12 +12,13 @@ Cloudbird Software 组织的可复用工作流（唯一真相源）。业务仓�
 | `hygiene.yml` | 大文件/凭据文件拦截 + gitleaks 全历史密钥扫描 + zizmor Actions 安全审计 | 10min |
 | `dep-review.yml` | 依赖漏洞 + 许可证审查（拒绝 AGPL/GPL-3.0/SSPL） | 10min |
 | `release.yml` | 构建 + SLSA 构建溯源 + GitHub Release 附件 | 20min |
+| `test-integrity.yml` | P2-1 测试篡改检测（ADR-0035/.github #86）：TI-R1 测试文件删除 / TI-R2 断言净下降 / TI-R3 新增抑制标记 / TI-R4 期望值改写 → 红；PR 引用 ADR 可豁免（计数入账） | 5min |
 
 本仓自有 workflow（不可复用，仅本仓 CI）：
 
 | 工作流 | 用途 | timeout 上限 |
 |---|---|---|
-| `ci.yml` | 本仓 PR/push 门禁（hygiene + gate 聚合） | 10min / 5min |
+| `ci.yml` | 本仓 PR/push 门禁（hygiene + T8 fixture 自检 + gate 聚合） | 10min / 5min |
 | `scorecard.yml` | 每周一 05:30 OSSF Scorecard 安全评分 + SARIF 上传 | 10min |
 
 所有 job 声明 `timeout-minutes` 熔断上限（testing.yaml "gate<5min" 原则的上界表达）：卡死的 job 不再无限占用 runner、不再阻塞合并。
@@ -42,6 +43,26 @@ Cloudbird Software 组织的可复用工作流（唯一真相源）。业务仓�
 - **`Cloudbird-Software/*` actions 白名单通配**：通配=信任组织内全部自有 action；本仓 workflow 变更属 C1 治理路径（GOVERNANCE flows.governance_change，owner-only review）。对高敏感业务仓，可改 pin commit sha 引用（`uses: Cloudbird-Software/CI-Workflows/.github/workflows/check.yml@<sha>`）换取不可变性、放弃自动跟随——按仓风险自选。
 - **verifier 判卷（AR-9）状态**：注册层已声明（agent-registry standards/checks.yaml：`test-tree-freeze` active——test-author 冻结测试树）；产品仓侧的 `mechanism:verifier` 判卷 workflow 尚未实装，属 ADR-0010 二期（与 `pr-identity-path-matrix` 同批，见 checks.yaml planned 项）。首个产品仓接入时实装——当前无业务仓消费，提前实装无消费方可验证。
 - **dependabot automerge（SC-3）**：判定逻辑在 template-service 仓（automerge workflow）；依赖审批 approver/SLA 已定义于 .github governance/policy/languages.yaml#dependency_policy（owner 审批，7 天 SLA）。
+
+## test-integrity 接入（ADR-0035 / .github #86，P2-1）
+
+业务仓 caller workflow 把本门纳入 gate 的 needs 链（hygiene/check 同款钉 hash）：
+
+```yaml
+  test-integrity:
+    uses: Cloudbird-Software/CI-Workflows/.github/workflows/test-integrity.yml@<sha> # v1
+  gate:
+    if: always()
+    needs: [hygiene, check, test-integrity, ...]
+```
+
+- 规则/阈值声明在 `Cloudbird-Software/.github` 的 `governance/policy/testing.yaml#test_integrity`
+  （可用 inputs `policy-repo`/`policy-ref` 覆盖）；policy 拉取失败即红（fail-closed）。
+- 非 PR 事件（push）本门为 n/a-success（无 base...head 的 PR diff 语义），调用方 gate
+  无需为它登记 ADR-0032 的 EXPECTED_SKIP。
+- 命中规则的 PR 想放行：title/body 引用 ADR-NNNN（须存在于 agent-registry/decisions，
+  防幽灵 ADR）→ 豁免但计数入账（job log `TI-COUNT escape_hatch_waived=` + step summary）。
+- 检测器变更必须先过本仓 `test-integrity-selftest`（T8 fixture 15 case 预标注全比对）。
 
 ## 版本策略
 
