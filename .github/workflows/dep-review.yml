@@ -4,8 +4,10 @@ on:
     inputs:
       # 可选：按 PURL 豁免指定包的许可证检查（逗号分隔，如
       # pkg:pypi/psycopg-binary）。用于 GitHub 依赖图许可证归一化误报的
-      # 精确豁免——调用仓自证并留痕，org deny 清单本体不变。
+      # 精确豁免——调用仓自证并留痕，org 判据本体不变（ADR-0026）。
       # 空串时 action 侧 getOptionalInput 返回 undefined，行为与不传一致。
+      # ADR-0039：许可证判据升级为拒绝式白名单（allow-licenses），本豁免
+      # 通道语义不变。
       allow-dependencies-licenses:
         description: 'PURL list (comma-separated) exempted from license checks'
         required: false
@@ -15,7 +17,66 @@ on:
 permissions: {}
 
 jobs:
+  policy:
+    # P2-5（ADR-0039）：policy 单一真源 = 本仓 policy/dependency-supply-chain.yaml。
+    # 从被调用 workflow 自身 ref checkout（github.workflow_ref 解析）——policy、
+    # 判定脚本（scripts/dep-supply-chain-check.py）、workflow 定义三者同 ref
+    # 原子发布：调用方 PR 改不到本仓，本仓 PR 无法只改其一而不同步其余（防削弱，
+    # #81 §3.3 思路）。拉取/解析失败即红（fail-closed）。
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      allow_licenses: ${{ steps.allow.outputs.list }}
+      wf_repo: ${{ steps.self.outputs.repo }}
+      wf_ref: ${{ steps.self.outputs.ref }}
+    steps:
+      - name: Harden Runner (egress audit)
+        uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c # v2.21.0
+        with:
+          egress-policy: audit
+      - name: 解析 workflow_ref（本 workflow 被调用的 repo@ref）
+        id: self
+        env:
+          WORKFLOW_REF: ${{ github.workflow_ref }}
+        run: |
+          set -eu
+          repo="$(printf '%s' "$WORKFLOW_REF" | cut -d@ -f1 | cut -d/ -f1,2)"
+          ref="${WORKFLOW_REF##*@}"
+          if [ -z "$repo" ] || [ -z "$ref" ]; then
+            echo "::error::workflow_ref 解析失败：$WORKFLOW_REF——policy 同 ref 拉取不可行（fail-closed）"
+            exit 1
+          fi
+          echo "repo=$repo" >> "$GITHUB_OUTPUT"
+          echo "ref=$ref"  >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ steps.self.outputs.repo }}
+          ref: ${{ steps.self.outputs.ref }}
+          persist-credentials: false
+          path: ci-workflows
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13"
+      - name: 安装 PyYAML（版本钉死）
+        run: python3 -m pip install --disable-pip-version-check --quiet pyyaml==6.0.3
+      - name: policy 解析 → allow-licenses 白名单（拒绝式）
+        id: allow
+        working-directory: ci-workflows
+        run: |
+          set -eu
+          python3 scripts/dep-supply-chain-check.py --policy policy/dependency-supply-chain.yaml --validate-only
+          list="$(python3 scripts/dep-supply-chain-check.py --policy policy/dependency-supply-chain.yaml --print-allow-licenses)"
+          if [ -z "$list" ]; then
+            echo "::error::allow-licenses 白名单为空——拒绝式语义下空表=全拒，不允许（fail-closed）"
+            exit 1
+          fi
+          echo "list=$list" >> "$GITHUB_OUTPUT"
+          echo "allow-licenses=$list"
+
   review:
+    needs: [policy]
     runs-on: ubuntu-latest
     timeout-minutes: 10   # 熔断上限（红队 #4 P1-2）
     permissions:
@@ -32,6 +93,62 @@ jobs:
       - uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5.0.0
         with:
           fail-on-severity: high
-          deny-licenses: AGPL-3.0, GPL-3.0, SSPL-1.0
+          # ADR-0039：许可证白名单（拒绝式）——不在 policy allow 列表的许可证
+          # 一律红。原 deny-licenses（AGPL-3.0/GPL-3.0/SSPL-1.0）清单语义被
+          # 白名单包含（不在列表即拒），故删除；误报豁免仍走下方
+          # allow-dependencies-licenses（ADR-0026）。
+          allow-licenses: ${{ needs.policy.outputs.allow_licenses }}
           comment-summary-in-pr: on-failure
           allow-dependencies-licenses: ${{ inputs.allow-dependencies-licenses }}
+
+  supply-chain:
+    # P2-5（ADR-0039）：新增依赖供应链判定（阈值全部来自 policy）——
+    #   包龄 <90 天（硬红）｜周下载量/单维护者（需 ADR）｜不存在包名明确报
+    #   「不存在」（幻觉包/抢注直防）｜install/构建期脚本（需 ADR）｜
+    #   lockfile↔manifest 静态一致性（名/精确版本级；哈希级在各仓 frozen
+    #   安装步，policy lockfile.required_mode 矩阵）。
+    # fail-closed：registry 不可达/policy 拉取失败一律红，不降级。
+    needs: [policy]
+    if: github.event_name == 'pull_request'   # 新增依赖=base↔head diff（push 面由各仓 deps-audit 覆盖）
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - name: Harden Runner (egress audit)
+        uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c # v2.21.0
+        with:
+          egress-policy: audit
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+      - name: 确保 base sha 可达（fail-closed：不可达=新增依赖集判定不完整）
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          git cat-file -e "$BASE_SHA^{commit}" 2>/dev/null \
+            || git fetch --no-tags origin "$BASE_SHA" --depth=1 \
+            || { echo "::error::base sha $BASE_SHA 不可达——新增依赖集判定不完整（fail-closed）"; exit 1; }
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13"
+      - name: 安装 PyYAML（版本钉死）
+        run: python3 -m pip install --disable-pip-version-check --quiet pyyaml==6.0.3
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ needs.policy.outputs.wf_repo }}
+          ref: ${{ needs.policy.outputs.wf_ref }}
+          persist-credentials: false
+          path: ci-workflows
+      - name: dep-supply-chain 判定
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          python3 ci-workflows/scripts/dep-supply-chain-check.py \
+            --policy ci-workflows/policy/dependency-supply-chain.yaml \
+            --base-sha "$BASE_SHA" --head-sha "$HEAD_SHA"
