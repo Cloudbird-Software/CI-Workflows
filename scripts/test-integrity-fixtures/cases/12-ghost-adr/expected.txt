@@ -1,0 +1,4 @@
+exit=1
+rules=TI-R2,TI-R4
+contains=ADR-9999
+contains=幽灵 ADR
