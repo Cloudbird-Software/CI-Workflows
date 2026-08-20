@@ -81,8 +81,10 @@ jobs:
           NEEDS: ${{ toJSON(needs) }}
         run: |
           echo "$NEEDS"
-          if echo "$NEEDS" | jq -e '[to_entries[] | select(.value.result != "success" and .value.result != "skipped")] | length > 0' >/dev/null; then
-            echo "::error::有 job 未通过"; exit 1
+          # 严格断言（P1-3 .github#84 / ADR-0032）：skipped≠success——本仓上游无事件
+          # 条件 job（两种事件都须真跑），无结构性预期跳过，非 success 一律红
+          if echo "$NEEDS" | jq -e '[to_entries[] | select(.value.result != "success")] | length > 0' >/dev/null; then
+            echo "::error::hygiene 未通过（skipped≠success：严格断言，非 success 一律红——ADR-0032）"; exit 1
           fi
 
       # adr-required（红队二批 ADR-0016 决策 1：README「修改规则」声明本检查但此前
