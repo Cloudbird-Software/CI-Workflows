@@ -1,0 +1,29 @@
+{
+ "format": "istanbul",
+ "repo": "template-service",
+ "pass": false,
+ "pct": 30.0,
+ "denominator": 20,
+ "covered": 6,
+ "exempt_files": 0,
+ "changed_files": 1,
+ "uncovered": {
+  "src/big.ts": [
+   101,
+   102,
+   103,
+   105,
+   106,
+   107,
+   109,
+   110,
+   111,
+   113,
+   114,
+   115,
+   117,
+   119
+  ]
+ },
+ "no_data": []
+}
