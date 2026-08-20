@@ -67,6 +67,16 @@ jobs:
         run: |
           uvx zizmor@1.29.0 --persona regular --min-severity medium .
 
+      # P2-5（ADR-0039）：dep policy 落盘 + gate 可解析校验。schema 校验保证
+      # policy/dependency-supply-chain.yaml 可被 dep-review 消费（阈值修订=C1
+      # 变更须引用 ADR）；self-test 为 #90 T6 单元级证明——同一成熟依赖在
+      # min_age_days=90 判绿、10000 判红，钉死"判定消费 policy 阈值而非硬编码"。
+      - name: dep policy 可解析校验 + self-test (ADR-0039)
+        run: |
+          python3 -m pip install --disable-pip-version-check --quiet pyyaml==6.0.3
+          python3 scripts/dep-supply-chain-check.py --policy policy/dependency-supply-chain.yaml --validate-only
+          python3 scripts/dep-supply-chain-check.py --self-test
+
   gate:
     if: always()
     needs: [hygiene]
