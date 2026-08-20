@@ -54,8 +54,10 @@ jobs:
         run: make setup
 
       - name: 校验 ciw-ref 钉源（fail-closed）
+        env:
+          CIW_REF: ${{ inputs.ciw-ref }}   # zizmor template-injection：模板值经 env 间接引用，不内插进脚本
         run: |
-          if ! [[ "${{ inputs.ciw-ref }}" =~ ^[0-9a-f]{40}$ ]]; then
+          if ! [[ "$CIW_REF" =~ ^[0-9a-f]{40}$ ]]; then
             echo "::error::ciw-ref 必须为 40 位 SHA 且与 uses: pin 同值（ADR-0043——reusable 上下文 workflow_ref 不可钉源）"; exit 1
           fi
 

@@ -1,0 +1,117 @@
+name: org-gate
+# 组织级 required workflow（P3-1 #95 / ADR-0046）——gate 审判逻辑的唯一真源。
+# 触发方式：org ruleset `org-required-workflows`（required workflows 在各受管仓
+# 的 pull_request/push 上自动运行本文件；本文件自身的 on: 不参与触发）。
+# 运行上下文 = 被审仓库（GITHUB_TOKEN/checkout/审计面均属被审仓）——被审 PR
+# 改不到这里的审判逻辑（#81 §3.3：PR 自我削弱路径关闭）。
+#
+# 结构：hygiene（复用本仓 hygiene.yml@钉 SHA，扫描被审仓）→ adr-required（C1
+# 路径变更须引用真实 ADR，路径集=组织 C1 ∪ 业务仓 C1 保守并集）→ gate（严格
+# 聚合器 + 双轨比对注记）。升级钉点须走本仓版本发布流程（ADR-0046 决策 5）。
+
+permissions:
+  contents: read
+
+jobs:
+  hygiene:
+    # 钉 commit hash（zizmor unpinned-uses；hash=本仓 main b43f5911，含 hygiene.yml
+    # 现行版）；hygiene 在被审仓上下文运行——checkout/扫描对象=被审仓库
+    uses: Cloudbird-Software/CI-Workflows/.github/workflows/hygiene.yml@b43f5911059098175b0819c8c309c493674aa2c3
+
+  adr-required:
+    # C1 路径变更须引用 ADR（与 .github 仓 gate.yml / 各业务仓 ci.yml 的 adr-required
+    # 同语义，但本文件在中心仓——被审 PR 无法掏空）。路径集=组织 C1 ∪ 业务仓 C1
+    # 保守并集（ADR-0046 决策 1）；分叉按 T3 观察期流程归因。
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - name: C1 变更须引用真实 ADR
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+          PR_API: "repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}"   # zizmor：模板值经 env 间接引用
+        run: |
+          CHANGED=$(gh api "$PR_API" --jq '.changed_files')
+          GOT=0
+          C1_HIT=0
+          PAGE=1
+          while :; do
+            PAGEJSON=$(gh api "$PR_API/files?per_page=100&page=$PAGE")
+            if ! jq -e 'type == "array"' <<<"$PAGEJSON" >/dev/null 2>&1; then
+              echo "::error::files API 第 $PAGE 页拉取失败——C1 判定完整性无法保证，fail-closed"
+              exit 1
+            fi
+            N=$(jq 'length' <<<"$PAGEJSON")
+            GOT=$((GOT+N))
+            if jq -e '[.[] | .filename, (.previous_filename // empty)]
+                     | any(test("^(governance/|standards/|scripts/|\.github/|CODEOWNERS|profile/|AGENTS\.md|Makefile|docs/|zizmor\.yml|\.dependency-cruiser\.cjs)"))' <<<"$PAGEJSON" >/dev/null 2>&1; then
+              C1_HIT=1
+            fi
+            [[ $N -lt 100 ]] && break
+            PAGE=$((PAGE+1))
+          done
+          if [ "$GOT" -lt "$CHANGED" ]; then
+            echo "::error::PR 声明变更 $CHANGED 个文件但 files API 只返回 $GOT 个（3000 上限截断）——fail-closed"
+            exit 1
+          fi
+          if [ "$C1_HIT" -ne 1 ]; then
+            echo "非 C1 路径变更，跳过 adr-required"
+            exit 0
+          fi
+          ADR_RE='\bADR-[0-9]{4}\b'
+          if ! { echo "$PR_TITLE"; echo "$PR_BODY"; } | grep -qE "$ADR_RE"; then
+            echo "::error::C1 路径变更但 PR 未引用任何 ADR-NNNN（org-gate 中心执法，ADR-0046）"
+            exit 1
+          fi
+          ADR_LISTING=$(gh api "repos/Cloudbird-Software/agent-registry/contents/decisions?per_page=100" --paginate --jq '.[].name' 2>/dev/null)
+          if [[ -z "$ADR_LISTING" ]]; then
+            echo "::error::agent-registry/decisions 清单拉取失败——ADR 存在性无法校验（fail-closed）"
+            exit 1
+          fi
+          MISSING=0
+          for ref in $( { echo "$PR_TITLE"; echo "$PR_BODY"; } | grep -oE "$ADR_RE" | sort -u ); do
+            num="${ref#ADR-}"
+            grep -q "^ADR-${num}-" <<<"$ADR_LISTING" || {
+              echo "::error::引用的 ${ref} 在 agent-registry/decisions/ 无对应文件（幽灵 ADR）"; MISSING=1; }
+          done
+          exit $MISSING
+
+  gate:
+    # 严格聚合器（ADR-0032：skipped≠success，仅 success 放行；本 workflow 上游
+    # 无事件条件 job，无 EXPECTED_SKIP）+ 双轨比对注记（T3 观察期数据积累）
+    if: always()
+    needs: [hygiene, adr-required]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - name: All required jobs green?（严格断言）
+        env:
+          NEEDS: ${{ toJSON(needs) }}
+        run: |
+          echo "$NEEDS"
+          if echo "$NEEDS" | jq -e '[to_entries[] | select(.value.result != "success")] | length > 0' >/dev/null; then
+            echo "::error::org-gate 上游未全绿（skipped≠success：严格断言——ADR-0032/0046）"; exit 1
+          fi
+      - name: 双轨比对注记（T3 观察期）
+        # 观察期数据：本地 gate（旧轨）与中心 org-gate（新轨）结论不一致时发
+        # warning 注记（不改变判定）——连续 PR 的比对数据用于退役旧轨的验收。
+        # 本地 gate 未完结/未上报时静默（avoid 竞态噪音）。
+        if: github.event_name == 'pull_request' && success()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CR_API: "repos/${{ github.repository }}/commits/${{ github.event.pull_request.head.sha }}/check-runs"   # zizmor：模板值经 env 间接引用
+        run: |
+          LOCAL=$(gh api "$CR_API" \
+            --jq '[.check_runs[] | select(.name == "gate") | .conclusion] | first // empty' 2>/dev/null || true)
+          if [[ -n "$LOCAL" && "$LOCAL" != "success" ]]; then
+            echo "::warning::双轨分叉（T3 观察期数据）：本地 gate=$LOCAL 而 org-gate=success——须归因后才能退役旧轨（ADR-0046 决策 3）"
+          elif [[ -n "$LOCAL" ]]; then
+            echo "双轨一致：本地 gate=$LOCAL，org-gate=success"
+          fi
