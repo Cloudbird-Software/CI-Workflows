@@ -1,0 +1,78 @@
+version: 1
+# ============================================================================
+# 抑制标记预算政策（自动合并计划 P2-2，.github #87 / ADR-0036）
+# 消费方：scripts/suppression-budget.sh（check.yml suppression-budget job）
+#
+# 治理位置：本文件在 CI-Workflows（C1 治理路径，ADR + owner review 方可变更）——
+# 被审 PR 修改不了审判自己的阈值/基线/标记集（#81 §3.3 同源防线）。
+# 参数化：per_pr_max_net_add 与 baselines 均为数据而非脚本常量——
+# governance/expected-state.json 后续可直接对账声明（主 agent 集成，不在 #87 范围）。
+#
+# 语义：
+#   单 PR 维度：diff 净增量（新增−删除）> per_pr_max_net_add → 红
+#   总量维度：  PR 合入树总量 > baselines[repo] → 红（棘轮：不升不降均可）
+#   逃生门：    PR 引用 ADR-NNNN 且该 ADR 内容含 escape_hatch.scope_marker 字样 →
+#               豁免绿 + 入账输出（棘轮同步义务见 ADR-0036 决策 4）
+#
+# 基线盘点：2026-08-20 对 REPOS.yaml 全部 11 个 active 仓 main 计数
+# （与运行时同一计数规则：grep -E 同引擎 + 同排除面）。盘点时点全 org 总量为 0，
+# agent-registry 的 3 来自 ADR-0036 自身正文的标记名列举（散文计入是保守方向：
+# 多计不少计，由预算与逃生门吸收）。
+# ============================================================================
+
+# 单 PR 净增阈值（净增 = diff 新增抑制标记数 − 删除数）
+per_pr_max_net_add: 3
+
+# 逃生门：引用的 ADR 须真实存在于 adr_repo 的 adr_dir，且内容含 scope_marker
+# 字样（scope 覆盖本门）。ADR 检出面为 main（已合入）——未合入的 ADR 不豁免。
+escape_hatch:
+  adr_repo: Cloudbird-Software/agent-registry
+  adr_dir: decisions
+  scope_marker: suppression-budget
+
+# ----------------------------------------------------------------------------
+# 抑制标记全集（机器可解析）。kind:
+#   regex = POSIX ERE（grep -E 同引擎，[[:space:]] 类 + GNU \b 词边界）
+#   file  = 按文件计：非空且非 # 注释行各计 1
+# 新增标记只改本文件（C1），不改脚本。
+# ----------------------------------------------------------------------------
+markers:
+  - {id: noqa,             kind: regex, pattern: '#[[:space:]]*noqa\b',                              tool: "flake8 / ruff"}
+  - {id: eslint-disable,   kind: regex, pattern: '\beslint-disable\b',                                 tool: eslint}
+  - {id: type-ignore,      kind: regex, pattern: '#[[:space:]]*type:[[:space:]]*ignore\b',            tool: mypy}
+  - {id: pyright-ignore,   kind: regex, pattern: '#[[:space:]]*pyright:[[:space:]]*ignore\b',         tool: pyright}
+  - {id: nosec,            kind: regex, pattern: '#[[:space:]]*nosec\b',                              tool: bandit}
+  - {id: pragma-no-cover,  kind: regex, pattern: '#[[:space:]]*pragma:[[:space:]]*no[[:space:]]*cover\b', tool: "go test -cover"}
+  - {id: coverage-ignore,  kind: regex, pattern: '#[[:space:]]*coverage:[[:space:]]*ignore\b',        tool: coverage.py}
+  - {id: istanbul-ignore,  kind: regex, pattern: '\bistanbul[[:space:]]+ignore\b',                    tool: "istanbul / nyc"}
+  - {id: gitleaks-allow,   kind: regex, pattern: 'gitleaks:allow\b',                                  tool: "gitleaks 行内豁免"}
+  - {id: depcruise-ignore, kind: regex, pattern: '\bdepcruise:ignore\b',                              tool: "dependency-cruiser（arch-lint）行内豁免"}
+  - {id: gitleaksignore-lines, kind: file, file: '.gitleaksignore',                                   tool: "gitleaks 指纹豁免文件"}
+
+# ----------------------------------------------------------------------------
+# 总量基线（棘轮）：PR 合入树总量 > 基线 → 红。
+# 上调须走逃生门豁免后的同步 PR 或 policy 修订（C1）；下调自由。
+# 未列仓 = fail-closed 红（新仓接入须先盘点入册）。
+# ----------------------------------------------------------------------------
+baselines:
+  .github: 0
+  CI-Workflows: 0
+  agent-registry: 3
+  template-service: 0
+  agent-tools: 0
+  agent-platform: 0
+  Shorts_Director: 0
+  Script_Writer: 0
+  Use-up-Plan: 0
+  AI_Web_School: 0
+  mutual: 0
+
+# ----------------------------------------------------------------------------
+# 计数排除（仓库作用域）：仅声明仓自己可排除——模式声明与自测 fixture 是数据
+# 不是抑制；业务仓零排除项，"挪目录洗标记"无通道。路径为 glob（* 跨目录），
+# 不得含空格。
+# ----------------------------------------------------------------------------
+count_exclude:
+  CI-Workflows:
+    - policy/suppressions.yaml                 # 标记模式声明本身是数据
+    - scripts/suppression-budget-selftest.sh   # T1–T5 fixture 载体（构造性标记样本）
