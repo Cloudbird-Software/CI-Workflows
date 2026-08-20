@@ -17,6 +17,11 @@ on:
       policy-ref:
         type: string
         default: "main"                          # C1 保护的默认分支；调用方可钉 SHA 提高不可变性
+      detector-ref:
+        type: string
+        default: ""   # 检测器来源（CI-Workflows 的 commit SHA/tag）——必须与 uses: 的 pin 同值；
+                       # 空=红（fail-closed）。不使用 github.action_ref：实测其在 reusable
+                       # workflow 上下文随步骤动作漂移（曾解析为上个 action 的 SHA），不可钉源
 
 permissions: {}
 
@@ -35,11 +40,11 @@ jobs:
       - name: 检测器来源钉定守卫（fail-closed）
         if: github.event_name == 'pull_request'
         env:
-          ACTION_REF: ${{ github.action_ref }}
+          DETECTOR_REF: ${{ inputs.detector-ref }}
         run: |
           set -eu
-          [ -n "$ACTION_REF" ] || { echo "::error::TI-FC github.action_ref 缺失——检测器无法与调用方钉的 ref 同源（ADR-0035 fail-closed）"; exit 1; }
-          echo "检测器来源 = CI-Workflows@$ACTION_REF（与调用方 uses: 同 ref）"
+          [ -n "$DETECTOR_REF" ] || { echo "::error::TI-FC detector-ref 输入为空——检测器来源未钉（ADR-0035 fail-closed）"; exit 1; }
+          echo "检测器来源 = CI-Workflows@$DETECTOR_REF（须与 uses: 的 pin 同值）"
 
       - name: Harden Runner (egress audit)
         if: github.event_name == 'pull_request'
@@ -59,7 +64,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: Cloudbird-Software/CI-Workflows
-          ref: ${{ github.action_ref }}
+          ref: ${{ inputs.detector-ref }}
           path: ciw
           persist-credentials: false
 
