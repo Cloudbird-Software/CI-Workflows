@@ -11,6 +11,7 @@ Cloudbird Software 组织的可复用工作流（唯一真相源）。业务仓�
 | `check.yml` | `make setup` + `make check`（lint + test），支持 node / python / go 运行时 | 15min |
 | `hygiene.yml` | 大文件/凭据文件拦截 + gitleaks 全历史密钥扫描 + zizmor Actions 安全审计 | 10min |
 | `dep-review.yml` | 依赖漏洞 + 许可证审查（拒绝 AGPL/GPL-3.0/SSPL） | 10min |
+| `contract.yml` | 契约兼容性检测门：OpenAPI（oasdiff）/ JSON Schema breaking + DB migration destructive DDL 分类（P2-4，ADR-0038） | 10min |
 | `diff-coverage.yml` | diff coverage 门槛（ADR-0037）：本次 PR 变更行覆盖率 ≥ policy 阈值（非全局覆盖率） | 5min |
 | `release.yml` | 构建 + SLSA 构建溯源 + GitHub Release 附件 | 20min |
 | `test-integrity.yml` | P2-1 测试篡改检测（ADR-0035/.github #86）：TI-R1 测试文件删除 / TI-R2 断言净下降 / TI-R3 新增抑制标记 / TI-R4 期望值改写 → 红；PR 引用 ADR 可豁免（计数入账） | 5min |
@@ -23,6 +24,26 @@ Cloudbird Software 组织的可复用工作流（唯一真相源）。业务仓�
 | `scorecard.yml` | 每周一 05:30 OSSF Scorecard 安全评分 + SARIF 上传 | 10min |
 
 所有 job 声明 `timeout-minutes` 熔断上限（testing.yaml "gate<5min" 原则的上界表达）：卡死的 job 不再无限占用 runner、不再阻塞合并。
+
+## 契约兼容性检测门（contract.yml，P2-4 / ADR-0038）
+
+业务仓 `ci.yml` 挂 `contract` job 并加入 gate `needs`（无事件条件，PR/push 两面都真跑）：
+
+```yaml
+  contract:
+    uses: Cloudbird-Software/CI-Workflows/.github/workflows/contract.yml@<sha> # v1
+    with:
+      ciw-ref: <sha>   # 与 uses: 钉扎同 SHA（被调用侧无法自取自身 ref，两处一致）
+  gate:
+    needs: [..., contract]
+```
+
+- **policy SoT**：`.github` 仓 `governance/policy/contracts.yaml`（各仓契约 kind+glob、迁移目录与工具、ADR/豁免要求）。org policy 未合入时回退引擎内置 bootstrap 快照（`scripts/contract/policy-bundled.yaml`，大声 WARN；`scripts/` 已纳入本仓 adr-required C1 路径）。
+- **检测面**：OpenAPI → `oasdiff breaking --fail-on WARN`（1.29.1 + tarball sha256 双锚定）；JSON Schema → 内置结构化 breaking 分类器；DB migration → alembic（`op.*` + `op.execute` 内嵌 SQL）/裸 SQL 双前端 DDL 分类器。proto 未实装——policy 声明即报错（组织无 proto，ADR-0038）。
+- **destructive 手续**：destructive DDL（DROP/ALTER TYPE/无默认值 NOT NULL 加列等，清单见引擎）须 PR 引用真实存在的 ADR + alembic `downgrade()` 含逆操作才放行。
+- **失明防护**：policy 声明路径在 HEAD 必须命中文件，否则红（防契约文件被移走后检测器失明，卡内 T6）。
+- **N/A 显式**：未声明契约面的仓真跑并输出 N/A（非 skipped，ADR-0032 范式）。
+- **自测**：本仓 `ci.yml` 的 `contract-selftest` job 跑 `contract_check.py --mode selftest`（卡内 T1-T7 全套，fixture 在 `scripts/contract/tests/`）。
 
 ## 权限模型（红队 #4 P1-3 审计结论）
 
@@ -118,3 +139,4 @@ Cloudbird Software 组织的可复用工作流（唯一真相源）。业务仓�
 ## 修改规则
 
 改动本仓会影响**所有引用仓库**的 CI。修改前先在本仓 PR 验证，确认无误后再移动 `v1` 指针。本仓变更属 C1 治理路径：PR 须引用 ADR（gate adr-required 检查）。
+

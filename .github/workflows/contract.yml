@@ -1,0 +1,100 @@
+name: contract-check
+# 契约兼容性检测门（P2-4，.github#89，ADR-0038）：
+#   OpenAPI → oasdiff breaking（版本+sha256 双锚定）；JSON Schema → 内置结构化
+#   breaking 分类器；DB migration → alembic/裸 SQL DDL 分类器（destructive 须
+#   ADR 引用 + downgrade 逆操作）。fail-closed：policy 拉取失败/声明路径失配/
+#   工具错误一律红。未声明契约面的仓显式输出 N/A（非 skipped，ADR-0032 范式）。
+# 接线（业务仓 ci.yml）：
+#   contract:
+#     uses: Cloudbird-Software/CI-Workflows/.github/workflows/contract.yml@<sha> # v1
+#   gate.needs += [contract]（无事件条件：PR/push 两面都真跑，无 EXPECTED_SKIP）
+on:
+  workflow_call:
+    inputs:
+      ciw-ref:
+        # github.workflow_ref 在被调用侧指向【调用方】的 ref（PR#17/49/96 实测），
+        # 引擎无法自取自身钉扎——调用方须把 uses: 的钉扎 SHA 原样再传一次
+        # （同文件两处一致，C1 评审面）。值须为 40-hex commit SHA 或 v1.x.y tag
+        # （禁可变分支名 / v1 指针——ADR-0038 决策 10）。
+        description: 'CI-Workflows 引擎脚本 checkout ref（与 uses: 钉扎同 SHA）'
+        required: true
+        type: string
+
+permissions: {}
+
+jobs:
+  contract-check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10   # 熔断上限（红队 #4 P1-2）
+    permissions:
+      contents: read
+    steps:
+      - name: Harden Runner (egress audit)
+        uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c # v2.21.0
+        with:
+          egress-policy: audit
+
+      - name: 引擎 ref 校验（fail-closed）
+        env:
+          CIW_REF: ${{ inputs.ciw-ref }}
+        run: |
+          set -eu
+          if ! echo "$CIW_REF" | grep -qE '^[0-9a-f]{40}$|^v[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "::error::ciw-ref 须为 40-hex commit SHA 或 v1.x.y tag（禁可变分支名/v1 指针，ADR-0038 决策 10）: $CIW_REF"
+            exit 1
+          fi
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0            # 契约 base↔head 比对需要全历史
+          persist-credentials: false
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: Cloudbird-Software/CI-Workflows
+          ref: ${{ inputs.ciw-ref }}
+          path: ciw
+          persist-credentials: false
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+
+      - name: pip 依赖（版本钉死）
+        run: python -m pip install --no-cache-dir pyyaml==6.0.3
+
+      - name: oasdiff 安装（版本+sha256 双锚定，gitleaks 同范式）
+        run: |
+          set -eu
+          OAS_VER="1.29.1"
+          OAS_SHA256="541f7c66c933495fceef24eaf5c48aa66c19069f366f7bd0a60a6a4820c5e533"
+          curl -sSfL "https://github.com/oasdiff/oasdiff/releases/download/v${OAS_VER}/oasdiff_${OAS_VER}_linux_amd64.tar.gz" -o /tmp/oasdiff.tgz
+          echo "${OAS_SHA256}  /tmp/oasdiff.tgz" | sha256sum -c -
+          tar -xzf /tmp/oasdiff.tgz -C /usr/local/bin oasdiff
+          oasdiff version || true
+
+      - name: contract-check
+        env:
+          GITHUB_TOKEN: ${{ github.token }}       # 读 org policy（公开仓）+ ADR 存在性校验
+          REPO: ${{ github.repository }}
+          EVENT_NAME: ${{ github.event_name }}
+          PR_TITLE: ${{ github.event.pull_request.title || '' }}
+          PR_BODY: ${{ github.event.pull_request.body || '' }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha || '' }}
+          OASDIFF_BIN: /usr/local/bin/oasdiff
+          CB_VERIFY_ADR_EXISTENCE: "1"
+        run: |
+          set -eu
+          # push 事件（直推 main，破玻璃面）：base=HEAD^——destructive 迁移在 push 面
+          # 无 ADR 引用通道，一律红（ADR-0038 决策 4a 的 push 语义）
+          if [ "$EVENT_NAME" = "pull_request" ]; then
+            BASE="$PR_BASE_SHA"
+          else
+            BASE=$(git rev-parse HEAD^)
+          fi
+          python ciw/scripts/contract/contract_check.py --mode pr \
+            --repo "$REPO" \
+            --base-sha "$BASE" \
+            --pr-title "$PR_TITLE" \
+            --pr-body "$PR_BODY" \
+            --oasdiff-bin "$OASDIFF_BIN"

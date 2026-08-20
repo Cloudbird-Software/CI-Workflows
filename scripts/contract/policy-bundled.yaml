@@ -1,0 +1,43 @@
+version: 1
+# ============================================================================
+# 引擎内置 bootstrap policy 快照（ADR-0038 决策 6）。
+# 权威源 = .github 仓 governance/policy/contracts.yaml；本快照仅在 org policy
+# 未合入（gh api 404）时作回退，且引擎会大声 WARN 标注来源。
+# org policy 合入后本文件成为死回退，后续清理卡可移除。
+# 本文件所在路径属 CI-Workflows C1 治理路径（ci.yml adr-required 已纳入 scripts/）。
+# ============================================================================
+defaults:
+  breaking_requires_adr: true      # breaking 契约变更须 PR 引用真实存在的 ADR 才放行
+  openapi_fail_on: WARN            # oasdiff --fail-on：WARN 级即红（删可选属性也拦，从严）
+
+repos:
+  template-service:
+    # 盘点（#89 步骤 1）：无契约文件、无迁移——N/A 显式路径的模板载体
+    contracts: []
+    migrations: null
+
+  AI_Web_School:
+    contracts:
+      - {kind: jsonschema, path: "specs/contracts/**"}
+    migrations:
+      tool: alembic
+      dir: alembic/versions
+
+  Shorts_Director:
+    contracts:
+      - {kind: jsonschema, path: "schema/contracts/**"}
+      - {kind: jsonschema, path: "schema/entities/**"}
+      - {kind: jsonschema, path: "schema/common/**"}
+    migrations: null
+
+  agent-registry:
+    # L1 声明层契约（registry/schemas）。接线延后：validate.yml 为单 job 架构，
+    # 接入需先做 aggregator 拆分（见 .github#89 留言，ADR-0038 决策 9）
+    contracts:
+      - {kind: jsonschema, path: "registry/schemas/**"}
+    migrations: null
+
+  # 盘点备注（不声明、不接线）：
+  #   agent-platform —— 仅 vendor/agent-registry/ 拷贝，源头在 agent-registry
+  #   mutual        —— spec/01-schemas.md 为散文 schema，不可机判
+  #   Script_Writer / agent-tools / Use-up-Plan / .github / CI-Workflows —— 无契约面
