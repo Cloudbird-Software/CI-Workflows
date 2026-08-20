@@ -1,3 +1,0 @@
-exit=1
-rules=TI-FC
-contains=BASE_SHA 不可解析
