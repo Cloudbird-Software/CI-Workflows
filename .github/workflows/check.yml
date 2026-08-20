@@ -7,6 +7,10 @@ on:
       python-version: { type: string, default: "3.13" }
       go-version:   { type: string, default: "1.24" }
       runs-on:      { type: string, default: "ubuntu-latest" }
+      # P2-9（ADR-0043）：重试包装器钉源——必须与 caller 的 uses: pin 同值（40 位
+      # SHA，空=fail-closed 红；#86 实测 github.workflow_ref 在 reusable 上下文
+      # 解析为 caller 自身 ref，不可用于钉源）
+      ciw-ref:      { type: string, default: "" }
 
 permissions: {}
 
@@ -18,7 +22,7 @@ jobs:
       contents: read
     steps:
       - name: Harden Runner (egress audit)
-        uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c # v2.21.0
+        uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85b0992719546e2c # v2.21.0
         with:
           egress-policy: audit
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -49,8 +53,22 @@ jobs:
       - name: make setup
         run: make setup
 
-      - name: make check
-        run: make check
+      - name: 校验 ciw-ref 钉源（fail-closed）
+        run: |
+          if ! [[ "${{ inputs.ciw-ref }}" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::ciw-ref 必须为 40 位 SHA 且与 uses: pin 同值（ADR-0043——reusable 上下文 workflow_ref 不可钉源）"; exit 1
+          fi
+
+      - name: 取重试包装器（CI-Workflows@ciw-ref）
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: Cloudbird-Software/CI-Workflows
+          ref: ${{ inputs.ciw-ref }}
+          path: ciw-scripts
+          persist-credentials: false
+
+      - name: make check（flaky-retry ≤N，入账）
+        run: bash ciw-scripts/scripts/flaky-retry.sh make check
 
       - name: Upload reports
         if: always()
