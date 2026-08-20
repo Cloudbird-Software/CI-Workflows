@@ -1,3 +1,0 @@
-exit=1
-rules=TI-R3
-contains=t\.Skip
