@@ -53,8 +53,8 @@ else
   [ -n "${HEAD_SHA:-}" ] || fail_closed "HEAD_SHA 缺失（git 模式必需）"
   git cat-file -e "${BASE_SHA}^{commit}" 2>/dev/null || fail_closed "BASE_SHA 不可解析: $BASE_SHA"
   git cat-file -e "${HEAD_SHA}^{commit}" 2>/dev/null || fail_closed "HEAD_SHA 不可解析: $HEAD_SHA"
-  DIFF_SRC="$TMPDIR/ti-diff.txt"
-  [ -n "${TMPDIR:-}" ] || DIFF_SRC="/tmp/ti-diff.txt"
+  DIFF_SRC="/tmp/ti-diff.txt"
+  [ -n "${TMPDIR:-}" ] && DIFF_SRC="$TMPDIR/ti-diff.txt"
   # -M：rename 识别（内容不变的 rename 不算删除）；-U0：无上下文，只看 +/- 行
   git -c core.quotepath=false diff -M --unified=0 --no-color \
     "${BASE_SHA}...${HEAD_SHA}" >"$DIFF_SRC" || fail_closed "git diff 生成失败"
