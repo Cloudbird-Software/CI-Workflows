@@ -13,12 +13,13 @@ Cloudbird Software 组织的可复用工作流（唯一真相源）。业务仓�
 | `dep-review.yml` | 依赖漏洞 + 许可证审查（拒绝 AGPL/GPL-3.0/SSPL） | 10min |
 | `diff-coverage.yml` | diff coverage 门槛（ADR-0037）：本次 PR 变更行覆盖率 ≥ policy 阈值（非全局覆盖率） | 5min |
 | `release.yml` | 构建 + SLSA 构建溯源 + GitHub Release 附件 | 20min |
+| `test-integrity.yml` | P2-1 测试篡改检测（ADR-0035/.github #86）：TI-R1 测试文件删除 / TI-R2 断言净下降 / TI-R3 新增抑制标记 / TI-R4 期望值改写 → 红；PR 引用 ADR 可豁免（计数入账） | 5min |
 
 本仓自有 workflow（不可复用，仅本仓 CI）：
 
 | 工作流 | 用途 | timeout 上限 |
 |---|---|---|
-| `ci.yml` | 本仓 PR/push 门禁（hygiene + gate 聚合） | 10min / 5min |
+| `ci.yml` | 本仓 PR/push 门禁（hygiene + T8 fixture 自检 + gate 聚合） | 10min / 5min |
 | `scorecard.yml` | 每周一 05:30 OSSF Scorecard 安全评分 + SARIF 上传 | 10min |
 
 所有 job 声明 `timeout-minutes` 熔断上限（testing.yaml "gate<5min" 原则的上界表达）：卡死的 job 不再无限占用 runner、不再阻塞合并。
@@ -70,6 +71,31 @@ Cloudbird Software 组织的可复用工作流（唯一真相源）。业务仓�
      # push 事件按 ADR-0032（required-check-chains.md 规则 2）在 EXPECTED_SKIP
      # 登记 diff-coverage（该 job 仅 PR 事件执法——事件互补结构性跳过）。
    ```
+
+## test-integrity 测试篡改检测门（ADR-0035 / .github #86，P2-1）
+
+业务仓 caller workflow 把本门纳入 gate 的 needs 链（hygiene/check 同款钉 ref）：
+
+```yaml
+  test-integrity:
+    uses: Cloudbird-Software/CI-Workflows/.github/workflows/test-integrity.yml@<钉住 ref>
+  gate:
+    if: always()
+    needs: [hygiene, check, test-integrity, ...]
+```
+
+- 规则/阈值声明在 `Cloudbird-Software/.github` 的 `governance/policy/testing.yaml#test_integrity`
+  （inputs `policy-repo`/`policy-ref` 可覆盖）；拉取失败即红（fail-closed），缺节用检测器
+  内置同值缺省。
+- **非 PR 事件（push）本门为 n/a-success**（无 base...head 的 PR diff 语义），调用方 gate
+  无需为它登记 ADR-0032 的 EXPECTED_SKIP（与 diff-coverage 的 job 级 if + EXPECTED_SKIP
+  登记方案二选一，本门选 n/a-success 以减少 caller 配置面）。
+- 命中规则的 PR 想放行：title/body 引用 ADR-NNNN（须存在于 agent-registry/decisions，防
+  幽灵 ADR）→ 豁免但计数入账（job log `TI-COUNT escape_hatch_waived=` + step summary）。
+- 执法工具从本 workflow 同 ref checkout（`github.workflow_ref` 解析，不取 caller 仓内
+  副本）；每次执法前前置跑 T8 fixture 自检（15 case 预标注全比对，`scripts/
+  test-integrity-fixtures/`）。检测器/模式变更也经本仓 ci.yml 的
+  `test-integrity-selftest` job 在本仓 PR 上先行回归。
 
 ## 已知风险与缓解（红队 #4 P1-4/P1-5 复核）
 
