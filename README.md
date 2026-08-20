@@ -11,6 +11,7 @@ Cloudbird Software 组织的可复用工作流（唯一真相源）。业务仓�
 | `check.yml` | `make setup` + `make check`（lint + test），支持 node / python / go 运行时 | 15min |
 | `hygiene.yml` | 大文件/凭据文件拦截 + gitleaks 全历史密钥扫描 + zizmor Actions 安全审计 | 10min |
 | `dep-review.yml` | 依赖漏洞 + 许可证审查（拒绝 AGPL/GPL-3.0/SSPL） | 10min |
+| `diff-coverage.yml` | diff coverage 门槛（ADR-0037）：本次 PR 变更行覆盖率 ≥ policy 阈值（非全局覆盖率） | 5min |
 | `release.yml` | 构建 + SLSA 构建溯源 + GitHub Release 附件 | 20min |
 
 本仓自有 workflow（不可复用，仅本仓 CI）：
@@ -30,11 +31,45 @@ Cloudbird Software 组织的可复用工作流（唯一真相源）。业务仓�
 |---|---|---|
 | check / hygiene | 顶层 `{}`，job 级 `contents: read` | checkout 只读 |
 | dep-review | 顶层 `{}`，job 级 `contents: read` + `pull-requests: write` | `comment-summary-in-pr` 失败摘要评论 + 评审写操作（见下） |
+| diff-coverage | 顶层 `{}`，job 级 `contents: read` | checkout caller 全历史求 merge-base + GITHUB_TOKEN 读公开仓 .github 的 policy（ADR-0020/0021 先例）；不注入 org secret |
 | release | 顶层 `{}`，job 级 `contents/id-token/attestations: write` | 写 Release 附件 + SLSA 溯源签名；受 `production` environment 人工审批门（RL-1） |
 | ci.yml | 顶层 `contents: read` | 本仓 checkout 只读 |
 | scorecard.yml | 顶层 `read-all`，job 级 `security-events/id-token: write` + `contents/actions: read` | 评分需元数据读 + SARIF 上传 |
 
 **`pull-requests: write` 的完整语义（评审勘误）**：该权限按 GitHub 文档覆盖 PR 评审写操作——含提交 `APPROVE` / `REQUEST_CHANGES` 事件，并非仅评论/标签。当前拦截 Actions 身份批准 PR 的是 org 级 API-only 设置 `can_approve_pull_request_reviews=false`（expected-state.json#actions_policy 固定）——workflow YAML 的 `permissions:` 块**无法表达也无法覆盖**该设置。即：令牌权限本身含审批路径（记录在案、纳入 `pull-requests: write` 发放审计），实际能否落地审批由 org 设置封堵，且 org 设置变更会被每日 drift-check 检出。
+
+## diff coverage 门槛（ADR-0037，P2-3）
+
+**口径**：本次 PR 变更行（`git diff -M -U0 $(merge-base) HEAD` 的新增行，含修改行，删除行不计）中被测试执行到的比例 ≥ 阈值——**非全局覆盖率**（全局口径按 .github `governance/policy/testing.yaml` X-01 继续拒绝；大 PR 稀释挡不住"顺手加 200 行无测试代码"，.github#88 T3 稀释攻击负向测试）。
+
+**阈值/豁免真源**：`.github` 仓 `governance/policy/testing.yaml` 的 `diff_coverage:` 段（缺省 80%，边界语义 **≥80.0 绿 / 79.9 红**）。按仓覆盖须登记 `repo_overrides`，caller input 显式声明的阈值与登记不符即红。豁免清单（文档/配置/生成代码）同在 policy——C1 路径（ADR+owner review）保护，**业务仓 PR 作者无权扩大豁免**；豁免变更走 ADR。
+
+**fail-closed**：非豁免变更行存在但覆盖率数据缺失/不可解析、policy 拉取失败、阈值与登记不符——一律红（"没测过"≠"测了没覆盖"）。
+
+**门禁三要素防削弱**（#81 §3.3）：workflow 本体（caller 钉 ref 引用）、执法工具（从 workflow 同 ref checkout 本仓 `scripts/diff-coverage.py`，不取 caller 仓内副本）、阈值与豁免（读 .github main policy）——均来自被审 PR 改不动的位置。工具自带 `--self-test`（#88 T6 预标注 fixture，`scripts/diff-coverage-fixtures/` 四组：lcov 等值边界 / istanbul 稀释攻击 / go 低于阈值+豁免 / cobertura+按仓覆盖），**每次执法运行前置执行**。
+
+**业务仓接入**（随 P2-1/P2-2 批次，caller 侧两步）：
+
+1. `make test` 产出四格式之一（工具 `--format auto` 自动嗅探）：
+   - node：vitest `--coverage`（`coverage/lcov.info` 现成）；
+   - python：Makefile 补 `--cov-report=xml`（`coverage.xml`，Cobertura）；
+   - go：`go test ./... -coverprofile=coverage.out`；
+   覆盖率文件经 `check.yml` 既有 `Upload reports` 工件（`reports-<runs-on>`，含 `coverage/`）透传。
+2. `ci.yml` 增 job 并入 gate needs 链：
+
+   ```yaml
+   diff-coverage:
+     uses: Cloudbird-Software/CI-Workflows/.github/workflows/diff-coverage.yml@<与 check.yml 相同的钉住 ref>
+     with:
+       coverage-artifact: reports-ubuntu-latest   # 与 check.yml 的 runs-on 对应
+       # coverage-format: lcov | istanbul | cobertura | go | auto（缺省 auto 嗅探）
+       # threshold: "90"   # 按仓覆盖——须先在 .github policy repo_overrides 登记，否则红
+
+   gate:
+     needs: [hygiene, check, diff-coverage, deps, deps-audit, adr-required]
+     # push 事件按 ADR-0032（required-check-chains.md 规则 2）在 EXPECTED_SKIP
+     # 登记 diff-coverage（该 job 仅 PR 事件执法——事件互补结构性跳过）。
+   ```
 
 ## 已知风险与缓解（红队 #4 P1-4/P1-5 复核）
 
