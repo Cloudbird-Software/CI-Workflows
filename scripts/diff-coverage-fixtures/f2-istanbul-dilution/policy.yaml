@@ -1,0 +1,6 @@
+diff_coverage:
+  threshold_pct: 80
+  repo_overrides: {}
+  exempt_extensions: [.md]
+  exempt_filenames: []
+  exempt_paths: []
