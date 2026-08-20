@@ -9,11 +9,23 @@ name: org-gate
 # 路径变更须引用真实 ADR，路径集=组织 C1 ∪ 业务仓 C1 保守并集）→ gate（严格
 # 聚合器 + 双轨比对注记）。升级钉点须走本仓版本发布流程（ADR-0046 决策 5）。
 
+# 平台约束（ruleset API 实测）：required workflow 的文件必须声明
+# pull_request / pull_request_target / merge_queue 触发器之一（本文件的触发器
+# 只为满足该约束——真正的调用方是 org ruleset；在中心仓自身触发的运行被下方
+# job 级守卫跳过，防自测重复）
+on:
+  pull_request:
+  merge_group:
+
 permissions:
   contents: read
 
 jobs:
   hygiene:
+    # 中心仓自身的 PR 会因 on: pull_request 触发本 workflow——跳过防重复
+    # （中心仓自有 ci.yml 自测；ruleset 不作用于 CI-Workflows 自身）
+    if: github.repository != 'Cloudbird-Software/CI-Workflows'
+    uses:
     # 钉 commit hash（zizmor unpinned-uses；hash=本仓 main b43f5911，含 hygiene.yml
     # 现行版）；hygiene 在被审仓上下文运行——checkout/扫描对象=被审仓库
     uses: Cloudbird-Software/CI-Workflows/.github/workflows/hygiene.yml@b43f5911059098175b0819c8c309c493674aa2c3
@@ -22,7 +34,7 @@ jobs:
     # C1 路径变更须引用 ADR（与 .github 仓 gate.yml / 各业务仓 ci.yml 的 adr-required
     # 同语义，但本文件在中心仓——被审 PR 无法掏空）。路径集=组织 C1 ∪ 业务仓 C1
     # 保守并集（ADR-0046 决策 1）；分叉按 T3 观察期流程归因。
-    if: github.event_name == 'pull_request'
+    if: github.event_name == 'pull_request' && github.repository != 'Cloudbird-Software/CI-Workflows'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
@@ -84,7 +96,7 @@ jobs:
   gate:
     # 严格聚合器（ADR-0032：skipped≠success，仅 success 放行；本 workflow 上游
     # 无事件条件 job，无 EXPECTED_SKIP）+ 双轨比对注记（T3 观察期数据积累）
-    if: always()
+    if: always() && github.repository != 'Cloudbird-Software/CI-Workflows'
     needs: [hygiene, adr-required]
     runs-on: ubuntu-latest
     timeout-minutes: 5
