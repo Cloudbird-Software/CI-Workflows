@@ -40,7 +40,7 @@ if [[ -n "${FLAKY_POLICY_INLINE:-}" ]]; then
 else
   P=$(curl -sS -H "Accept: application/vnd.github+json" "$POLICY_URL?ref=$POLICY_REF" \
       | jq -r '.content' | base64 -d 2>/dev/null | sed -n '/^flaky_governance:/,/^[a-z_]*:$/p' \
-      | grep -E '^\s+retry_max:' | head -1 | grep -oE '[0-9]+')
+      | grep -E '^\s+retry_max:' | head -1 | sed 's/#.*//' | grep -oE '[0-9]+')
   if [[ -z "$P" ]]; then
     echo "::error::flaky_governance policy 拉取/解析失败（$POLICY_URL@$POLICY_REF）——fail-closed，不裸奔缺省（ADR-0043）"
     exit 2
