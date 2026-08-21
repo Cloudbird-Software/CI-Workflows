@@ -62,16 +62,16 @@ jobs:
             echo "::error::ciw-ref 必须为 40 位 SHA 且与 uses: pin 同值（ADR-0043——reusable 上下文 workflow_ref 不可钉源）"; exit 1
           fi
 
-      - name: 取重试包装器（CI-Workflows@ciw-ref）
+      - name: 取重试包装器（CI-Workflows@ciw-ref——检出在 runner.temp，不污染调用仓 lint 扫描面）
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: Cloudbird-Software/CI-Workflows
           ref: ${{ inputs.ciw-ref }}
-          path: ciw-scripts
+          path: ${{ runner.temp }}/ciw-scripts
           persist-credentials: false
 
       - name: make check（flaky-retry ≤N，入账）
-        run: bash ciw-scripts/scripts/flaky-retry.sh make check
+        run: bash "$RUNNER_TEMP/ciw-scripts/scripts/flaky-retry.sh" make check
 
       - name: Upload reports
         if: always()
