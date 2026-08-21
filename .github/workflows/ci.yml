@@ -112,9 +112,28 @@ jobs:
       - name: INV-06 仓级默认扫描（豁免面=wrapper 本体+一期入口，见 scan-patterns.yaml）
         run: bash pipeline/metering/scan-direct-sdk.sh
 
+  adversary-selftest:
+    # 恶意合规 adversary 自测（W4-C2 .github#221 / ADR-0067 决策 2/3，宪法 §4E
+    # 判定物有效性）：零真实 LLM 调用（--replay-file 回放）——T1 配置锁（prompt
+    # hash 一致+篡改负控制+AR-8 跨族断言）、T2 弱套件 e2e（退化实现真全绿 →
+    # exit 1 blocking + 钻洞归因）、T3 强套件 e2e（五类攻击全败 → exit 0 + 尝试
+    # 记录留痕）、T4 恒绿防御（白卷 → exit 3）、T5 计量约定（role=adversary 落账）。
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: PyYAML（adversary-config / attack-strategies / 角色档表解析）
+        run: python3 -m pip install --disable-pip-version-check --quiet pyyaml==6.0.3
+      - name: adversary 自测 T0-T5
+        run: bash pipeline/adversary/tests/run-tests.sh
+
   gate:
     if: always()
-    needs: [hygiene, test-integrity-selftest, metering-selftest]
+    needs: [hygiene, test-integrity-selftest, metering-selftest, adversary-selftest]
     runs-on: ubuntu-latest
     timeout-minutes: 5    # testing.yaml "gate<5min" 原则的硬上限
     permissions:

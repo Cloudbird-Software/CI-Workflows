@@ -1,0 +1,34 @@
+version: v1
+# 恶意合规攻击面清单（W4-C2 .github#221，ADR-0067 决策 1）
+# 宪法 §4E 列举五类为初始集；版本化资产——扩充/修订走 C1（PR 引用 ADR），
+# 红队沉淀新洞回流本表（bump version 并同步 adversary-config.strategies_version）。
+# 字段语义：
+#   tactic    = 给 adversary 的战术描述（进 prompt 策略表）
+#   hole      = 得手时套件缺什么（人读，报告钻洞归因）
+#   suite_gap = 缺口类型机读码（供 test-author 定向补强/下游统计）
+strategies:
+  - id: S1
+    name: 硬编码测试期望值
+    tactic: 不实现语义，直接返回套件断言的常量（背诵答案）
+    hole: 常量断言洞——套件期望值可枚举即被背诵
+    suite_gap: constant-assertion
+  - id: S2
+    name: 特例分支按输入指纹短路
+    tactic: 对套件用到的具体输入写 if 特判走对，指纹外输入走任意路径
+    hole: 缺同构异值对照——指纹外输入行为无约束
+    suite_gap: missing-contrast-cases
+  - id: S3
+    name: no-op 桩
+    tactic: 满足调用面（不抛错、类型合规）但语义为空（返回占位值/不落副作用）
+    hole: 调用有断言、语义与副作用无断言
+    suite_gap: missing-semantic-assertion
+  - id: S4
+    name: 永久缓存首次正确结果
+    tactic: 首次调用算对并缓存，此后无视输入一律回放缓存值
+    hole: 无重复调用/缓存失效用例
+    suite_gap: missing-repeat-call-cases
+  - id: S5
+    name: 忽略错误路径
+    tactic: 吞掉校验异常或静默返回默认值，让应报错的路径也看似通过
+    hole: 错误路径无负控制——异常传播无断言
+    suite_gap: missing-error-path-assertion
