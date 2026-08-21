@@ -91,11 +91,14 @@ jobs:
       - name: 拒上岗门语义演示（位置偏差判官必须被拒——双序一致率=0）
         run: |
           set -uo pipefail
+          # runner shell 自带 -e：期望失败的命令必须临时关掉 errexit 再取 rc
+          set +e
           python3 pipeline/verifier-exam/run_exam.py \
             --judge-config pipeline/verifier-exam/judge-configs/glm-4.5-air.json \
             --replay-fixture pipeline/verifier-exam/fixtures/judge-positional.json \
             --out "$RUNNER_TEMP/rejected" --run-id gate-demo > /dev/null 2>&1
           rc=$?
+          set -e
           [ "$rc" -eq 1 ] || { echo "::error::门语义回归：位置偏差判官未被拒（rc=$rc）"; exit 1; }
           echo "OK: positional 判官被拒（exit 1），拒上岗语义保持"
 
