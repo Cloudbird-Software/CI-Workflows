@@ -1,4 +1,5 @@
 name: check
+# v1.5.4：内容与 v1.5.0 等价（+本注释行）——换 blob 以绕开平台对旧 blob 的编译缓存缺陷（同内容 3ad58c23 在 b89d886 编译正常、370516d 编译残缺，实测）
 on:
   workflow_call:
     inputs:
