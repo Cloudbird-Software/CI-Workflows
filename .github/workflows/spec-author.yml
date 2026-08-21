@@ -11,6 +11,12 @@ on:
       issue_number: { type: number, required: true }
       target_repo: { type: string, required: true }   # owner/name（IR 所在仓=PR 目标仓）
       ir_ref: { type: string, required: true }        # 展示标识，如 "IR-0002 .github#140"
+    secrets:
+      # 调用方（conductor）显式传递（zizmor secrets-inherit 禁裸继承）；
+      # workflow_dispatch 路径由 org secret 直接注入（visibility=all）
+      LLM_API_KEY:      { type: environment, required: true }
+      CB_APP_ID:        { type: environment, required: true }
+      AGENT_APP_SECRET: { type: environment, required: true }
   workflow_dispatch:
     inputs:
       issue_number: { type: number, required: true }
