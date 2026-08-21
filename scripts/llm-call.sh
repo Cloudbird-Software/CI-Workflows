@@ -9,7 +9,7 @@
 # 用法:
 #   bash scripts/llm-call.sh --model <name> --prompt-file p.txt \
 #        [--system-file s.txt] [--max-tokens N] [--temperature F] \
-#        [--seed N] [--tag <stage-tag>]
+#        [--seed N] [--thinking disabled|enabled] [--tag <stage-tag>]
 # env:
 #   LLM_API_KEY    必填——org secret（直连 provider key，ADR-0048）
 #   LLM_BASE_URL   可选——默认 https://open.bigmodel.cn/api/paas/v4
@@ -21,7 +21,7 @@
 #   退出码 0=成功；2=参数/环境错误；3=计量自检失败；4=provider 调用失败
 set -euo pipefail
 
-MODEL="" PROMPT_FILE="" SYSTEM_FILE="" MAX_TOKENS="" TEMPERATURE="" SEED="" TAG="untagged"
+MODEL="" PROMPT_FILE="" SYSTEM_FILE="" MAX_TOKENS="" TEMPERATURE="" SEED="" THINKING="" TAG="untagged"
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --model)        MODEL="${2:?}"; shift 2 ;;
@@ -30,6 +30,7 @@ while [[ $# -gt 0 ]]; do
     --max-tokens)   MAX_TOKENS="${2:?}"; shift 2 ;;
     --temperature)  TEMPERATURE="${2:?}"; shift 2 ;;
     --seed)         SEED="${2:?}"; shift 2 ;;
+    --thinking)     THINKING="${2:?}"; shift 2 ;;
     --tag)          TAG="${2:?}"; shift 2 ;;
     *) echo "未知参数 $1（用法见文件头）" >&2; exit 2 ;;
   esac
@@ -46,11 +47,14 @@ mkdir -p "$USAGE_DIR"
 PROMPT=$(cat "$PROMPT_FILE")
 SYSTEM=$([[ -n "$SYSTEM_FILE" ]] && cat "$SYSTEM_FILE" || true)
 
-# 请求体（seed 仅在显式给出时携带——provider 对未支持参数会整体拒绝；
+# 请求体（seed/thinking 仅在显式给出时携带——provider 对未支持参数会整体拒绝；
+# thinking=disabled 供 GLM 4.5+ 推理模型输出即时正文——计量/连通性类小调用必需；
 # jq 程序保持单行——部分 jq 构建（Windows 原生 exe）不接受多行程序串）
+THINK_ARG="null"
+if [[ -n "$THINKING" ]]; then THINK_ARG="{\"type\":\"$THINKING\"}"; fi
 REQ=$(jq -nc --arg m "$MODEL" --arg p "$PROMPT" --arg s "$SYSTEM" \
-      --argjson mt "${MAX_TOKENS:-null}" --argjson tp "${TEMPERATURE:-null}" --argjson sd "${SEED:-null}" \
-      '{model:$m, max_tokens:$mt, temperature:$tp, seed:$sd, messages:((if $s != "" then [{role:"system",content:$s}] else [] end) + [{role:"user",content:$p}])} | with_entries(select(.value != null))')
+      --argjson mt "${MAX_TOKENS:-null}" --argjson tp "${TEMPERATURE:-null}" --argjson sd "${SEED:-null}" --argjson th "$THINK_ARG" \
+      '{model:$m, max_tokens:$mt, temperature:$tp, seed:$sd, thinking:$th, messages:((if $s != "" then [{role:"system",content:$s}] else [] end) + [{role:"user",content:$p}])} | with_entries(select(.value != null))')
 
 REQ_SHA=$(printf '%s' "$REQ" | sha256sum | cut -d' ' -f1)
 PROMPT_VER=$(printf '%s\n%s' "$PROMPT" "$SYSTEM" | sha256sum | cut -d' ' -f1)
@@ -75,7 +79,7 @@ CONTENT=$(jq -r '.choices[0].message.content // empty' "$TMPD/resp.json")
 TS=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 REC=$(jq -nc \
   --arg schema llm-usage/v1 --arg ts "$TS" --arg tag "$TAG" --arg model "$MODEL" \
-  --arg pv "sha256:$PROMPT_VER" --argjson sd "${SEED:-null}" \
+  --arg pv "sha256:$PROMPT_VER" --argjson sd "${SEED:-null}" --arg th "${THINKING:-null}" \
   --argjson mt "${MAX_TOKENS:-null}" --argjson tp "${TEMPERATURE:-null}" \
   --argjson pt "$(jq '.usage.prompt_tokens // 0' "$TMPD/resp.json")" \
   --argjson ct "$(jq '.usage.completion_tokens // 0' "$TMPD/resp.json")" \
@@ -84,7 +88,7 @@ REC=$(jq -nc \
   --arg req "sha256:$REQ_SHA" \
   --arg resp "sha256:$(sha256sum "$TMPD/resp.json" | cut -d' ' -f1)" \
   --argjson pb "$(printf '%s' "$PROMPT" | wc -c | tr -d ' ')" \
-  '{schema:$schema, ts:$ts, tag:$tag, model:$model, prompt_version:$pv, prompt_bytes:$pb, seed:$sd, sampling:{max_tokens:$mt, temperature:$tp}, usage:{prompt_tokens:$pt, completion_tokens:$ct, total_tokens:$tt}, latency_ms:$latency, http_status:$http, request_sha256:$req, response_sha256:$resp}')
+  '{schema:$schema, ts:$ts, tag:$tag, model:$model, prompt_version:$pv, prompt_bytes:$pb, seed:$sd, thinking:$th, sampling:{max_tokens:$mt, temperature:$tp}, usage:{prompt_tokens:$pt, completion_tokens:$ct, total_tokens:$tt}, latency_ms:$latency, http_status:$http, request_sha256:$req, response_sha256:$resp}')
 
 # 计量自检（fail-closed，schema 必填字段的机内镜像——完整 schema 校验由
 # llm-usage.schema.json 定义、下游关卡消费）：任一必填为空/类型不符即失败，
