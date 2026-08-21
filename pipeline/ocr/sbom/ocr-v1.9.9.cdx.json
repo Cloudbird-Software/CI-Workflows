@@ -1,0 +1,41 @@
+{
+  "$schema": "http://cyclonedx.org/schema/bom-1.5.schema.json",
+  "bomFormat": "CycloneDX",
+  "specVersion": "1.5",
+  "version": 1,
+  "metadata": {
+    "timestamp": "2026-08-22T00:00:00Z",
+    "component": {
+      "type": "application",
+      "bom-ref": "ciw-ocr-shadow@1.0.0",
+      "name": "ciw-ocr-shadow",
+      "version": "1.0.0",
+      "description": "Cloudbird-Software CI-Workflows 的 OCR shadow 接入（vendored 钉版封装 + 确定性后处理 + post-fix precision 管线）。外部 Action 不在 expected-state.json actions_policy 白名单，故以本仓 composite action（pipeline/ocr/action.yml + install-ocr.sh）形态钉版接入。范式署名：代码评审执行=alibaba/open-code-review（Apache-2.0）；post-fix precision 度量=withmartian/code-review-benchmark（MIT，方法学 fork）。",
+      "licenses": [{ "license": { "id": "Apache-2.0" } }]
+    }
+  },
+  "components": [
+    {
+      "type": "application",
+      "bom-ref": "pkg:github/alibaba/open-code-review@v1.9.9",
+      "name": "open-code-review",
+      "version": "1.9.9",
+      "purl": "pkg:github/alibaba/open-code-review@v1.9.9",
+      "hashes": [
+        { "alg": "SHA-256", "content": "52f993c615a6b456cb1c36fc135fec6b8da19cb88da7f305bd2726c3d72f1cf0" }
+      ],
+      "licenses": [{ "license": { "id": "Apache-2.0" } }],
+      "externalReferences": [
+        { "type": "distribution", "url": "https://github.com/alibaba/open-code-review/releases/download/v1.9.9/opencodereview-linux-amd64" },
+        { "type": "vcs", "url": "https://github.com/alibaba/open-code-review/tree/c95d3907d5448354d3f8a33f2ae5e4f23fdf1c94" }
+      ],
+      "properties": [
+        { "name": "cloudbird:asset", "value": "opencodereview-linux-amd64" },
+        { "name": "cloudbird:release-tag", "value": "v1.9.9" },
+        { "name": "cloudbird:release-commit-sha", "value": "c95d3907d5448354d3f8a33f2ae5e4f23fdf1c94" },
+        { "name": "cloudbird:telemetry", "value": "disabled-explicitly（默认 off；安装器另写 config 钉死 false；egress 白名单阻断兜底——ADR-0063 决策 1）" },
+        { "name": "cloudbird:pin-guard", "value": "pipeline/ocr/tests/test_pins.py 校验本清单与 action.yml/install-ocr.sh 钉锚一致" }
+      ]
+    }
+  ]
+}

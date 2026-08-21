@@ -1,0 +1,41 @@
+name: vendored-ocr
+# vendored 钉版封装（W2-C4 .github#217 / ADR-0063 决策 1、2）
+#
+# 为什么是 vendored composite action 而非引用上游 action：
+# alibaba/open-code-review 不在 expected-state.json actions_policy 白名单
+# （github 官方/verified/Cloudbird-Software/*/zizmor/astral-sh/dependabot/
+# docker/softprops/step-security/ossf）——不扩白名单的合规接入形态 = 本仓
+# composite action + 钉版安装脚本（白名单 Cloudbird-Software/* 命中本仓；
+# 工作流内以本地路径 uses: ./pipeline/ocr 引用，零第三方 Action 引用）。
+#
+# 钉锚（三重）：release tag v1.9.9 + 二进制 sha256 + release 源 commit SHA
+# （SBOM 见 pipeline/ocr/sbom/ocr-v1.9.9.cdx.json，tests/test_pins.py 防漂移）。
+description: >
+  安装 alibaba/open-code-review (OCR, Apache-2.0) v1.9.9——版本+sha256 双锚定
+  下载官方 release 资产；telemetry 默认关闭（安装器额外写入显式禁用配置，
+  ADR-0063 决策 1）。上游范式署名：github.com/alibaba/open-code-review。
+
+inputs:
+  version:
+    description: "OCR release 版本（tag 去 v 前缀）"
+    default: "1.9.9"
+  sha256:
+    description: "opencodereview-linux-amd64 的 sha256（与 SBOM 一致，tests 防漂移）"
+    default: "52f993c615a6b456cb1c36fc135fec6b8da19cb88da7f305bd2726c3d72f1cf0"
+  release-commit:
+    description: "release tag v1.9.9 指向的源 commit（溯源锚点，SBOM externalReferences）"
+    default: "c95d3907d5448354d3f8a33f2ae5e4f23fdf1c94"
+
+runs:
+  using: composite
+  steps:
+    - name: 钉版安装 OCR（版本+sha256 双锚定，ADR-0063 决策 1）
+      shell: bash
+      env:
+        OCR_VERSION: ${{ inputs.version }}
+        OCR_SHA256: ${{ inputs.sha256 }}
+        OCR_RELEASE_COMMIT: ${{ inputs.release-commit }}   # zizmor：模板值经 env 间接引用
+      run: |
+        set -euo pipefail
+        echo "vendored-ocr: alibaba/open-code-review v${OCR_VERSION} (release commit ${OCR_RELEASE_COMMIT}, Apache-2.0)"
+        bash "${GITHUB_ACTION_PATH}/install-ocr.sh"

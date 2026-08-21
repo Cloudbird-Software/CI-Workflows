@@ -1,0 +1,150 @@
+name: ocr-shadow
+# OCR shadow 接入（W2-C4 .github#217 / ADR-0063；宪法 §4C/§5/§9#2）
+# 范式署名：评审执行=alibaba/open-code-review（Apache-2.0，vendored 钉版封装
+# pipeline/ocr/action.yml——alibaba/* 不在 actions_policy 白名单，故不引用其
+# action，见 action.yml 头注释）；post-fix precision=withmartian/
+# code-review-benchmark（MIT，方法学 fork，precision.py）。
+#
+# 纯 shadow 纪律（ADR-0063 决策 5 / AC-4）：
+#   - 不注册 required check、不写 PR review state、无 approve 形态——本 workflow
+#     只落 artifact 记录；晋升 veto 另走 ADR + 信任门，本文件不授权。
+#   - OCR 建议一律经 pipeline/ocr/postprocess.py 确定性后处理（diff 范围/规则/
+#     去重，丢一计一），过滤率本身是指标（宪法 §4E）。
+#   - 无 LLM 凭据时诚实降级：输出 N/A（无凭据，跳过）+ skipped 计数，exit 0
+#     ——不伪装运行过评审。
+# workflow_call（ADR-0063 决策 2）：各公开仓后续以 reusable 形式挂接（caller
+# 须 secrets: inherit 传递 org secret LLM_API_KEY），不在各仓各自安装 OCR。
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+  workflow_call:
+    inputs:
+      model:
+        { description: "OCR 推理模型（org provider，ADR-0048）", type: string, default: "glm-4.5-air" }
+
+concurrency:
+  group: ocr-shadow-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  shadow:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20   # shadow 非阻断（未注册 required），超时只损失观察样本不挡合并
+    permissions:
+      contents: read
+      pull-requests: read   # 仅 gh api 拉 PR diff
+    steps:
+      # egress 白名单阻断（ADR-0063 决策 1 telemetry 防线第二层：OCR telemetry 已
+      # 显式禁用（默认 off+安装器钉死 config），任何残余出口在此被阻断并留日志）
+      - name: Harden Runner（egress 白名单——github + provider，INV-06）
+        uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c # v2.21.0
+        with:
+          egress-policy: block
+          # 白名单（折叠标量风格，同 llm-connectivity.yml）：release-assets.* 是
+          # release 资产 302 落点（钉版下载实测 curl exit 7 教训）
+          allowed-endpoints:
+            github.com:443
+            api.github.com:443
+            objects.githubusercontent.com:443
+            release-assets.githubusercontent.com:443
+            open.bigmodel.cn:443
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0   # OCR merge-base 评审需要全历史
+
+      - name: 自测试（零网络零真实推理——fixture 全断言）
+        run: python3 -m unittest discover -s pipeline/ocr/tests -v
+
+      - name: 拉 PR diff（后处理判越界的真源）
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}   # zizmor：模板值经 env 间接引用
+          PR_NUM: ${{ github.event.pull_request.number }}
+        run: |
+          # gh pr diff --patch（gh api + Accept: application/vnd.diff 实测被 API 拒 415——
+          # 平台要求 gh api 请求必须 accept application/json，改走 gh 原生命令）
+          gh pr diff "$PR_NUM" --repo "$REPO" --patch > "$RUNNER_TEMP/pr.diff"
+          echo "pr.diff: $(wc -l < "$RUNNER_TEMP/pr.diff") 行"
+
+      - name: 安装 OCR（vendored 钉版：v1.9.9+sha256 双锚定，ADR-0063 决策 1）
+        uses: ./pipeline/ocr
+
+      # 凭据最小暴露面（zizmor secret-exposure 模型，ci.yml adr-required 同款防线）：
+      # LLM_API_KEY 只进本步骤 env——PR 可改的 pipeline/ocr/*.py 后处理步骤不接触
+      # key；OCR 输出视为不可信文本（INV-10 精神）：后处理只做确定性正则/行号比对。
+      - name: OCR shadow 评审（无凭据诚实降级 N/A；纯记录不写 review state）
+        id: ocr
+        env:
+          LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
+          OCR_LLM_URL: "https://open.bigmodel.cn/api/paas/v4"
+          OCR_LLM_MODEL: ${{ inputs.model || 'glm-4.5-air' }}   # zizmor：模板值经 env 间接引用
+          OCR_LLM_PROTOCOL: "openai"
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          set -uo pipefail
+          if [ -z "${LLM_API_KEY:-}" ]; then
+            echo "N/A（无凭据，跳过）——诚实降级：org secret LLM_API_KEY 不可用（org secrets 私有仓限定时公开仓拿不到），记录 skipped 计数"
+            printf '{"status":"skipped","message":"N/A（无凭据，跳过）","comments":[]}\n' > "$RUNNER_TEMP/ocr-out.json"
+            echo "rc=0" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          export OCR_LLM_TOKEN="$LLM_API_KEY"
+          unset OCR_ENABLE_TELEMETRY   # 防外部注入开启；telemetry 已由安装器在 config 层钉死关闭
+          set +e
+          ocr review --from "origin/${BASE_REF:-main}" --to HEAD --format json --audience agent \
+            --timeout 5 > "$RUNNER_TEMP/ocr-out.json" 2> "$RUNNER_TEMP/ocr-stderr.log"
+          RC=$?
+          set -e
+          echo "rc=$RC" >> "$GITHUB_OUTPUT"
+          if ! jq -e 'type == "object" and has("comments")' "$RUNNER_TEMP/ocr-out.json" >/dev/null 2>&1; then
+            echo "::error::OCR 输出不可解析（exit $RC）：$(head -c 400 "$RUNNER_TEMP/ocr-stderr.log")"
+            exit 1   # 工具/供应商故障保持可见（非 required check，不阻断合并——AC-4）
+          fi
+          jq -r '"ocr status=\(.status) comments=\(.comments | length)"' "$RUNNER_TEMP/ocr-out.json"
+
+      - name: 确定性后处理（AC-2：越界/未中规则/重复 丢弃计数）
+        env:
+          OCR_RC: ${{ steps.ocr.outputs.rc }}   # zizmor：模板值（steps 输出）经 env 间接引用
+        run: |
+          python3 pipeline/ocr/postprocess.py \
+            --ocr-json "$RUNNER_TEMP/ocr-out.json" --diff "$RUNNER_TEMP/pr.diff" \
+            --rules pipeline/ocr/rules.yaml \
+            --out "$RUNNER_TEMP/kept.json" --stats-file "$RUNNER_TEMP/stats.json" \
+            --ocr-rc "$OCR_RC"
+
+      - name: shadow 记录 → JSONL（AC-3 数据源：ocr-shadow/<date>.jsonl）
+        env:
+          REPO: ${{ github.repository }}   # zizmor：模板值经 env 间接引用
+          PR: ${{ github.event.pull_request.number }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          RUN_ID: ${{ github.run_id }}
+          EVENT: ${{ github.event_name }}
+          MODEL: ${{ inputs.model || 'glm-4.5-air' }}
+        run: |
+          python3 pipeline/ocr/shadow-record.py \
+            --kept "$RUNNER_TEMP/kept.json" --stats "$RUNNER_TEMP/stats.json" \
+            --out-dir ocr-shadow --repo "$REPO" --pr "$PR" --head-sha "$HEAD_SHA" \
+            --run-id "$RUN_ID" --model "$MODEL" --event "$EVENT" --ocr-version 1.9.9
+          find ocr-shadow -name '*.jsonl' -exec wc -l {} +
+
+      - name: 上传 shadow 记录 artifact（precision.py 周期消费）
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ocr-shadow-${{ github.run_id }}
+          path: ocr-shadow/
+          retention-days: 90   # 观察窗+时序累积所需；晋升评审留痕
+          if-no-files-found: warn   # 前置步骤失败时保持根因可见（job 已红），不为缺文件叠加噪音
+
+      - name: 统计入 run 摘要（过滤率指标可见）
+        if: always()
+        run: |
+          {
+            echo "## ocr-shadow（纯记录，不阻断——ADR-0063）"
+            echo '```json'
+            cat "$RUNNER_TEMP/stats.json" 2>/dev/null || echo '{"error": "stats 未生成（前置步骤失败）"}'
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
