@@ -2,6 +2,13 @@ name: dependency-review
 on:
   workflow_call:
     inputs:
+      # 判定器/policy/workflow 三耦合钉源（ADR-0039 + ADR-0043 实测教训）：必须与
+      # caller 的 uses: pin 同值（40 位 SHA，空=fail-closed 红）。github.workflow_ref
+      # 在 reusable 上下文解析为 caller 自身 ref（CI-Workflows #21 实测、v1.5.1 re-pin
+      # 激活时实证 policy job 检出 caller 仓而 fail-closed）——显式输入是唯一可靠机制。
+      ciw-ref:
+        type: string
+        default: ''
       # 可选：按 PURL 豁免指定包的许可证检查（逗号分隔，如
       # pkg:pypi/psycopg-binary）。用于 GitHub 依赖图许可证归一化误报的
       # 精确豁免——调用仓自证并留痕，org 判据本体不变（ADR-0026）。
@@ -19,7 +26,7 @@ permissions: {}
 jobs:
   policy:
     # P2-5（ADR-0039）：policy 单一真源 = 本仓 policy/dependency-supply-chain.yaml。
-    # 从被调用 workflow 自身 ref checkout（github.workflow_ref 解析）——policy、
+    # 从 ciw-ref 输入（= caller 的 uses: pin）checkout 本仓——policy、
     # 判定脚本（scripts/dep-supply-chain-check.py）、workflow 定义三者同 ref
     # 原子发布：调用方 PR 改不到本仓，本仓 PR 无法只改其一而不同步其余（防削弱，
     # #81 §3.3 思路）。拉取/解析失败即红（fail-closed）。
@@ -29,27 +36,23 @@ jobs:
       contents: read
     outputs:
       allow_licenses: ${{ steps.allow.outputs.list }}
-      wf_repo: ${{ steps.self.outputs.repo }}
-      wf_ref: ${{ steps.self.outputs.ref }}
+      wf_repo: Cloudbird-Software/CI-Workflows   # 三耦合：repo 固定，ref=ciw-ref（=uses pin）
+      wf_ref: ${{ inputs.ciw-ref }}
     steps:
       - name: Harden Runner (egress audit)
         uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c # v2.21.0
         with:
           egress-policy: audit
-      - name: 解析 workflow_ref（本 workflow 被调用的 repo@ref）
+      - name: 校验 ciw-ref 钉源（fail-closed）
         id: self
         env:
-          WORKFLOW_REF: ${{ github.workflow_ref }}
+          CIW_REF: ${{ inputs.ciw-ref }}   # zizmor 模板注入规范：经 env 间接引用
         run: |
           set -eu
-          repo="$(printf '%s' "$WORKFLOW_REF" | cut -d@ -f1 | cut -d/ -f1,2)"
-          ref="${WORKFLOW_REF##*@}"
-          if [ -z "$repo" ] || [ -z "$ref" ]; then
-            echo "::error::workflow_ref 解析失败：$WORKFLOW_REF——policy 同 ref 拉取不可行（fail-closed）"
+          if ! [[ "$CIW_REF" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::ciw-ref 必须为 40 位 SHA 且与 uses: pin 同值（ADR-0039/0043——reusable 上下文 workflow_ref 不可钉源）"
             exit 1
           fi
-          echo "repo=$repo" >> "$GITHUB_OUTPUT"
-          echo "ref=$ref"  >> "$GITHUB_OUTPUT"
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: ${{ steps.self.outputs.repo }}

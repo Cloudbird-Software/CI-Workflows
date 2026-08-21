@@ -21,6 +21,12 @@ name: diff-coverage
 on:
   workflow_call:
     inputs:
+      # 执法工具钉源（ADR-0037 决策 6 + ADR-0043 实测教训）：必须与 caller 的
+      # uses: pin 同值（40 位 SHA，空=红）。github.workflow_ref 在 reusable 上下文
+      # 解析为 caller 自身 ref（#21 实测）——显式输入是唯一可靠机制。
+      ciw-ref:
+        type: string
+        default: ''
       coverage-artifact:
         description: check job 上传的覆盖率工件名（check.yml 缺省 reports-<runs-on>）
         type: string
@@ -59,20 +65,18 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
-      - name: 解析执法工具 ref（本 workflow 被调用时的钉住 ref——工具与门禁同源）
+      - name: 校验 ciw-ref 钉源（fail-closed）
         id: toolref
         env:
-          WORKFLOW_REF: ${{ github.workflow_ref }}
+          CIW_REF: ${{ inputs.ciw-ref }}   # zizmor 模板注入规范：经 env 间接引用
         run: |
           set -euo pipefail
-          # workflow_ref 形如 "owner/CI-Workflows/.github/workflows/diff-coverage.yml@refs/tags/v1"
-          REF="${WORKFLOW_REF##*@}"
-          case "$REF" in
-            refs/tags/*|refs/heads/*|[0-9a-f]*) ;;
-            *) echo "::error::无法从 workflow_ref 解析工具 ref: $WORKFLOW_REF"; exit 1 ;;
-          esac
-          echo "ref=$REF" >> "$GITHUB_OUTPUT"
-          echo "tool ref: $REF（与 caller 钉住的 workflow 同源）"
+          if ! [[ "$CIW_REF" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::ciw-ref 必须为 40 位 SHA 且与 uses: pin 同值（ADR-0037/0043——reusable 上下文 workflow_ref 不可钉源）"
+            exit 1
+          fi
+          echo "ref=$CIW_REF" >> "$GITHUB_OUTPUT"
+          echo "tool ref: $CIW_REF（与 caller 钉住的 workflow 同源）"
       - name: Checkout 执法工具（CI-Workflows 同 ref，不取 caller 仓内副本）
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

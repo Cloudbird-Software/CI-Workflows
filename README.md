@@ -8,12 +8,13 @@ Cloudbird Software 组织的可复用工作流（唯一真相源）。业务仓�
 
 | 工作流 | 用途 | timeout 上限 |
 |---|---|---|
-| `check.yml` | `make setup` + `make check`（lint + test，flaky-retry ≤N 入账），支持 node / python / go 运行时；含 `suppression-budget` 门（P2-2，ADR-0036）：抑制标记净增 ≤3/PR + 合入树总量棘轮 + ADR 逃生门（PR 事件判定，非 PR 事件 n/a-success） | 15min |
+| `check.yml` | `make setup` + `make check`（lint + test，flaky-retry ≤N 入账），支持 node / python / go 运行时；必填 `ciw-ref` 输入（= uses pin，三耦合钉源） | 15min |
 | `hygiene.yml` | 大文件/凭据文件拦截 + gitleaks 全历史密钥扫描 + zizmor Actions 安全审计 | 10min |
 | `dep-review.yml` | 依赖漏洞 + 许可证审查（拒绝 AGPL/GPL-3.0/SSPL） | 10min |
 | `contract.yml` | 契约兼容性检测门：OpenAPI（oasdiff）/ JSON Schema breaking + DB migration destructive DDL 分类（P2-4，ADR-0038） | 10min |
 | `diff-coverage.yml` | diff coverage 门槛（ADR-0037）：本次 PR 变更行覆盖率 ≥ policy 阈值（非全局覆盖率） | 5min |
 | `release.yml` | 构建 + SLSA 构建溯源 + GitHub Release 附件 | 20min |
+| `suppression-budget.yml` | P2-2 抑制标记预算门（ADR-0036 / .github #87）：净增 ≤3/PR + 合入树总量棘轮 + ADR 逃生门；独立 reusable（v1.5.1 实测内嵌 check.yml job 触发平台 action 解析故障，ADR-0036 修订改独立文件）；必填 `detector-ref` 输入 | 5min |
 | `test-integrity.yml` | P2-1 测试篡改检测（ADR-0035/.github #86）：TI-R1 测试文件删除 / TI-R2 断言净下降 / TI-R3 新增抑制标记 / TI-R4 期望值改写 → 红；PR 引用 ADR 可豁免（计数入账） | 5min |
 
 本仓自有 workflow（不可复用，仅本仓 CI）：
