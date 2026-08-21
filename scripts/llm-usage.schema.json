@@ -1,0 +1,45 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/Cloudbird-Software/CI-Workflows/blob/main/scripts/llm-usage.schema.json",
+  "title": "llm-usage/v1",
+  "description": "IR-0001 W0-C1（ADR-0048）：LLM 调用计量记录。llm-call.sh 每次调用落盘一条；wrapper 内置必填字段 fail-closed 自检，本 schema 为下游关卡（cost-check/BEH-09 漂移监控）的消费契约。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema", "ts", "tag", "model", "prompt_version", "prompt_bytes",
+    "sampling", "usage", "latency_ms", "http_status",
+    "request_sha256", "response_sha256"
+  ],
+  "properties": {
+    "schema": { "const": "llm-usage/v1" },
+    "ts": { "type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:]{8}Z$" },
+    "tag": { "type": "string", "minLength": 1, "maxLength": 64 },
+    "model": { "type": "string", "minLength": 1 },
+    "prompt_version": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "prompt_bytes": { "type": "integer", "minimum": 0 },
+    "seed": { "type": ["integer", "null"] },
+    "sampling": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["max_tokens"],
+      "properties": {
+        "max_tokens": { "type": "integer", "minimum": 1 },
+        "temperature": { "type": ["number", "null"], "minimum": 0, "maximum": 2 }
+      }
+    },
+    "usage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["prompt_tokens", "completion_tokens", "total_tokens"],
+      "properties": {
+        "prompt_tokens": { "type": "integer", "minimum": 0 },
+        "completion_tokens": { "type": "integer", "minimum": 0 },
+        "total_tokens": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "latency_ms": { "type": "integer", "minimum": 0 },
+    "http_status": { "type": "integer", "minimum": 200, "maximum": 299 },
+    "request_sha256": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "response_sha256": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" }
+  }
+}
