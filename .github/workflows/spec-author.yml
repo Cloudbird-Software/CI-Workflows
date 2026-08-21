@@ -11,6 +11,10 @@ on:
       issue_number: { type: number, required: true }
       target_repo: { type: string, required: true }   # owner/name（IR 所在仓=PR 目标仓）
       ir_ref: { type: string, required: true }        # 展示标识，如 "IR-0002 .github#140"
+      # 钉源自证（ADR-0043 同款，check.yml ciw-ref 模式）：必须与 caller 的 uses: pin
+      # 同值（40 位 SHA）——空或非 40 位 = fail-closed 红。github.action_ref 在
+      # caller 上下文不可靠（实测解析成 checkout action 的 SHA）
+      ciw_ref: { type: string, required: true, default: "" }
     secrets:
       # 调用方（conductor）显式传递（zizmor secrets-inherit 禁裸继承）；
       # workflow_dispatch 路径由 org secret 直接注入（visibility=all）
@@ -22,6 +26,7 @@ on:
       issue_number: { type: number, required: true }
       target_repo: { type: string, required: true }
       ir_ref: { type: string, required: true }
+      ciw_ref: { type: string, required: true, default: "" }
 
 permissions:
   contents: read
@@ -43,10 +48,15 @@ jobs:
       # 可复用 workflow 运行在【调用方】上下文——checkout 默认拉调用方仓！
       # 必须显式拉本仓（CI-Workflows）且 ref=github.action_ref（调用方钉定的
       # SHA，自引用钉点——被调方永远执行自己被钉定的版本，#143 实测教训）
+      - name: 钉源校验（fail-closed——ciw_ref 须为与 uses 钉点同值的 40 位 SHA）
+        env:
+          CIW_REF: ${{ inputs.ciw_ref }}
+        run: |
+          [[ "$CIW_REF" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::ciw_ref 缺失或非 40 位 SHA（caller 必须把 uses: pin 的 SHA 同时作为 ciw_ref 传入——ADR-0043 钉源模式）"; exit 1; }
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: Cloudbird-Software/CI-Workflows
-          ref: ${{ github.action_ref }}
+          ref: ${{ inputs.ciw_ref }}
           persist-credentials: false
       # gh-app-token.sh 属 .github 仓（ADR-0044）——治理仓 main 受 PR+gate 保护；
       # path: gov 防止与本仓 checkout 冲突
