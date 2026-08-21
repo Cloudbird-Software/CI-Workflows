@@ -44,7 +44,7 @@ jobs:
 
       - name: Harden Runner (egress audit)
         if: github.event_name == 'pull_request'
-        uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85b0992719546e2c # v2.21.0
+        uses: step-security/harden-runner@b09bb98e06d4d774595224525879c09bc6e98c40 # v2.20.1（v2.21.0 的 05e31511 在本环境 git 数据不可解析——action 解析必红，实测 v2.20.1 正常）
         with:
           egress-policy: audit
 
