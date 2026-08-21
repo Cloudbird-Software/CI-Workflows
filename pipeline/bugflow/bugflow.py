@@ -340,7 +340,22 @@ def cmd_repro(a):
             corpus += r.stdout
         else:
             print("WARN 同 issue 评论拉取失败——去重面失明，按无先例处理（宁可重跑不误绕过）")
-        r = gh(["api", "search/issues", "-f", f"q=repo:{a.repo} \"bugfp:{fp}\" is:issue",
+        # 判定标签反查（list API）：search/issues 走搜索索引、新判定评论有分钟级
+        # 滞后——W3-C1 e2e #238 实测同指纹二次上报漏判（重跑了全流程，幂等无害
+        # 但违背"自动绕过"）。改为按终态判定标签反查 issue 清单再读其评论，
+        # list API 无索引延迟；search 仍叠加作广度补充。
+        for vlbl in TERMINAL:
+            rl = gh(["api", f"repos/{a.repo}/issues", "-X", "GET", "-f", f"labels={vlbl}",
+                     "-f", "state=all", "-f", "per_page=10", "--jq", ".[].number"], a.token)
+            if rl.returncode != 0:
+                print(f"WARN 判定标签反查 {vlbl} 失败——去重面收窄（重跑幂等无害），继续")
+                continue
+            for num in [n for n in rl.stdout.split() if n.isdigit() and n != str(a.issue)]:
+                rc2 = gh(["api", f"repos/{a.repo}/issues/{num}/comments",
+                          "--jq", ".[].body"], a.token)
+                if rc2.returncode == 0:
+                    corpus += rc2.stdout
+        r = gh(["api", "search/issues", "-X", "GET", "-f", f"q=repo:{a.repo} \"bugfp:{fp}\" is:issue",
                 "--jq", ".items[].body"], a.token)
         if r.returncode == 0:
             corpus += r.stdout
