@@ -1,0 +1,206 @@
+name: bug-reproduce
+# Bug 流 reproduce 阶段触发器（W3-C1 .github#218 / ADR-0064，宪法 §3 Bug 流/§9#6）。
+# 判定协议 = SWT-bench F→P 扩展（三值：reproduced/cannot-reproduce/inconclusive）。
+# 三个触发面归一到同一判定输入（issue 输入形态）：
+#   ① workflow_dispatch——跨仓 bug 单（org 任意仓的 bug issue 由本仓流水线复现；
+#      产品仓不必各自装 workflow——中央化与 conductor 事件面跨仓扩展同思路）
+#   ② issues(labeled bug)——自托管形态：本仓自己的 bug 单打 bug 标签即触发
+#   ③ issue_comment(/reproduce)——人工重跑入口（OWNER/MEMBER/COLLABORATOR）
+# 注意：issues/issue_comment 事件只在默认分支上的 workflow 文件上生效（GitHub
+# 平台约束）——本文件合入 main 前，②③为 dormant，①需文件在 main 注册后才可
+# dispatch；合入前的 e2e 以 pipeline/bugflow/tests fixture 形态在本仓 CI 跑。
+#
+# 状态写权（INV-02）：GITHUB_TOKEN 仅 contents:read（checkout/查默认分支）；
+# 判定标签/评论全部以 cloudbrid-agent App 令牌写入（与 conductor 同源）。
+on:
+  workflow_dispatch:
+    inputs:
+      issue_repo:
+        { type: string, required: true, description: "bug issue 所在仓（owner/name）" }
+      issue_number:
+        { type: number, required: true, description: "bug issue 编号" }
+      scenario:
+        { type: string, default: "", description: "fixture 场景名（pipeline/bugflow/tests/fixtures/ 下目录名）；空=真实模式（checkout 目标仓 base/fix）" }
+      base_ref:
+        { type: string, default: "", description: "真实模式 base ref（空=目标仓默认分支）" }
+      fix_ref:
+        { type: string, default: "", description: "fix 候选 ref（F→P 的 P 半边；空=base-only 判定）" }
+      repro_cmd:
+        { type: string, default: "", description: "复现命令（空=取 issue form『机器复现用例』字段）" }
+      timeout_seconds:
+        { type: number, default: 1800, description: "单次 repro 超时上限（ADR-0064 决策 4：30min）" }
+  issues:
+    types: [labeled]
+  issue_comment:
+    types: [created]
+
+# INV-09 同款：每 issue 一个 concurrency group、不取消在途 run——重复触发排队
+# 串行；幂等由 bugflow 的同指纹去重与标签幂等承担
+concurrency:
+  group: bug-reproduce-${{ github.event.issue.number || inputs.issue_number }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read   # 顶层最小非空集：checkout 本仓/目标仓 + 查默认分支；标签写走 App 令牌
+
+jobs:
+  reproduce:
+    # ②③ 仅对 bug 面（非 bug 标签/普通评论不消耗 runner）；
+    # ③权限对齐 conductor guard（CONTRIBUTOR/NONE 不可触发复现计算）
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'issues' && github.event.action == 'labeled' &&
+       github.event.label.name == 'bug') ||
+      (github.event_name == 'issue_comment' && github.event.action == 'created' &&
+       startsWith(github.event.comment.body, '/reproduce'))
+    runs-on: ubuntu-latest
+    # 上限推算：每次尝试 ≤(2×base+1×fix)×30min=90min，inconclusive 重试一次翻倍
+    # +自证/开销——典型 run 为分钟级，200min 是 ADR 允许的最坏熔断
+    timeout-minutes: 200
+    steps:
+      - name: Harden Runner（egress audit——复现命令出向不可预知，只审计不阻断）
+        uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c # v2.21.0
+        with:
+          egress-policy: audit
+
+      - name: 事件规范化（三触发面 → 同一判定输入；模板值全走 env，不入脚本——zizmor）
+        id: ev
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          ACTION: ${{ github.event.action }}
+          LABEL_NAME: ${{ github.event.label.name }}
+          COMMENT_BODY: ${{ github.event.comment.body }}
+          COMMENT_ASSOC: ${{ github.event.comment.author_association }}
+          SELF_REPO: ${{ github.repository }}
+          SELF_ISSUE: ${{ github.event.issue.number }}
+          IN_REPO: ${{ inputs.issue_repo }}
+          IN_NUMBER: ${{ inputs.issue_number }}
+          IN_SCEN: ${{ inputs.scenario }}
+          IN_BASE: ${{ inputs.base_ref }}
+          IN_FIX: ${{ inputs.fix_ref }}
+          IN_REPRO: ${{ inputs.repro_cmd }}
+          IN_TIMEOUT: ${{ inputs.timeout_seconds }}
+        run: |
+          set -euo pipefail
+          case "$EVENT_NAME" in
+            workflow_dispatch)
+              REPO="$IN_REPO"; ISSUE="$IN_NUMBER"; SCEN="$IN_SCEN"
+              BASE_REF="$IN_BASE"; FIX_REF="$IN_FIX"; REPRO_CMD="$IN_REPRO"; TIMEOUT="$IN_TIMEOUT" ;;
+            issues)
+              # ②自托管：本仓 bug 单（label 事件送达时 bug 标签已生效）
+              REPO="$SELF_REPO"; ISSUE="$SELF_ISSUE"; SCEN=""
+              BASE_REF=""; FIX_REF=""; REPRO_CMD=""; TIMEOUT="" ;;
+            issue_comment)
+              read -r first _ <<<"$COMMENT_BODY"
+              if [[ "$first" != "/reproduce" ]]; then
+                echo "::notice::非 /reproduce 命令——不判定"; echo "skip=true" >>"$GITHUB_OUTPUT"; exit 0
+              fi
+              case "$COMMENT_ASSOC" in
+                OWNER|MEMBER|COLLABORATOR) ;;
+                *) echo "::notice::$COMMENT_ASSOC 无权触发 reproduce（对齐 conductor guard）"; echo "skip=true" >>"$GITHUB_OUTPUT"; exit 0 ;;
+              esac
+              REPO="$SELF_REPO"; ISSUE="$SELF_ISSUE"; SCEN=""
+              BASE_REF=""; FIX_REF=""; REPRO_CMD=""; TIMEOUT="" ;;
+          esac
+          # GITHUB_OUTPUT 单行键值约束：多行值会破坏 outputs 解析——复现命令只收单行
+          if [[ "$REPRO_CMD" == *$'\n'* ]]; then
+            echo "::error::repro_cmd 含换行——GITHUB_OUTPUT 单行约束，多步用例请落 shell 文件后引用"; exit 1
+          fi
+          {
+            echo "repo=$REPO"; echo "issue=$ISSUE"; echo "scenario=$SCEN"
+            echo "base_ref=$BASE_REF"; echo "fix_ref=$FIX_REF"
+            echo "repro_cmd=$REPRO_CMD"; echo "timeout=${TIMEOUT:-1800}"
+          } >>"$GITHUB_OUTPUT"
+          echo "判定输入：repo=$REPO issue=$ISSUE scenario=${SCEN:-（真实模式）}"
+
+      - name: Checkout 本仓（bugflow 流水线本体，随触发 ref）
+        if: steps.ev.outputs.skip != 'true'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Checkout 目标仓 base/fix（真实模式）
+        if: steps.ev.outputs.skip != 'true' && steps.ev.outputs.scenario == ''
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ steps.ev.outputs.repo }}
+          ref: ${{ steps.ev.outputs.base_ref }}
+          path: repro-base
+          persist-credentials: false
+
+      - name: Checkout fix 候选（真实模式，F→P 的 P 半边）
+        if: steps.ev.outputs.skip != 'true' && steps.ev.outputs.scenario == '' && steps.ev.outputs.fix_ref != ''
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ steps.ev.outputs.repo }}
+          ref: ${{ steps.ev.outputs.fix_ref }}
+          path: repro-fix
+          persist-credentials: false
+
+      # gh-app-token.sh 属 .github 治理仓（ADR-0044）：main 受 PR+gate 保护
+      - name: 取 App 令牌铸造脚本（.github 治理仓 sparse checkout）
+        if: steps.ev.outputs.skip != 'true'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: Cloudbird-Software/.github
+          sparse-checkout: scripts/gh-app-token.sh
+          path: gov
+          persist-credentials: false
+
+      - name: 铸 App 令牌（AG-2：bug issue 所在仓单仓作用域——状态写权不在 GITHUB_TOKEN）
+        if: steps.ev.outputs.skip != 'true'
+        env:
+          CB_APP_ID: ${{ secrets.CB_APP_ID }}
+          AGENT_APP_SECRET: ${{ secrets.AGENT_APP_SECRET }}
+          TARGET_REPO: ${{ steps.ev.outputs.repo }}
+        run: |
+          set -euo pipefail
+          NAME="${TARGET_REPO#*/}"
+          TOKEN=$(REPO="$NAME" CB_APP_ID="$CB_APP_ID" AGENT_APP_SECRET="$AGENT_APP_SECRET" \
+                  bash gov/scripts/gh-app-token.sh)
+          # 令牌不回显；经 GITHUB_ENV 传给判定步骤（zizmor：不落 step 日志面）
+          echo "APP_TOKEN=$TOKEN" >>"$GITHUB_ENV"
+
+      - name: reproduce（env-gate → 哨兵自证 → 三值判定 → 落标签）
+        if: steps.ev.outputs.skip != 'true'
+        env:
+          # bugflow 的全部 gh 调用（正文/去重/标签/评论）都走 App 令牌——GITHUB_TOKEN
+          # 无状态写权（INV-02），只留给默认分支解析（GH_RO）
+          GH_TOKEN: ${{ env.APP_TOKEN }}
+          GH_RO: ${{ github.token }}
+          REPO: ${{ steps.ev.outputs.repo }}
+          ISSUE: ${{ steps.ev.outputs.issue }}
+          SCEN: ${{ steps.ev.outputs.scenario }}
+          BASE_REF: ${{ steps.ev.outputs.base_ref }}
+          FIX_REF: ${{ steps.ev.outputs.fix_ref }}
+          REPRO_CMD: ${{ steps.ev.outputs.repro_cmd }}
+          TIMEOUT_S: ${{ steps.ev.outputs.timeout }}
+          RUN_ID: ${{ github.run_id }}
+        run: |
+          set -uo pipefail
+          ARGS=(repro --repo "$REPO" --issue "$ISSUE" --label-mode api --gh-dedup
+                --timeout "${TIMEOUT_S:-1800}" --run-id "$RUN_ID")
+          [[ -n "$SCEN" ]] && ARGS+=(--scenario "$SCEN")
+          if [[ -z "$SCEN" ]]; then
+            # 真实模式：base ref 缺省=目标仓默认分支（fail-closed：解析失败即红）
+            BREF="$BASE_REF"
+            [[ -n "$BREF" ]] || BREF=$(GH_TOKEN="$GH_RO" gh api "repos/$REPO" --jq .default_branch)
+            [[ -n "$BREF" ]] || { echo "::error::默认分支解析失败（fail-closed）"; exit 1; }
+            ARGS+=(--base-dir repro-base --base-ref "$BREF")
+            [[ -n "$FIX_REF" ]] && ARGS+=(--fix-dir repro-fix --fix-ref "$FIX_REF")
+            [[ -n "$REPRO_CMD" ]] && ARGS+=(--repro-cmd "$REPRO_CMD")
+          fi
+          python3 pipeline/bugflow/bugflow.py "${ARGS[@]}"
+          rc=$?
+          # 退出码契约：0=判定完成 | 2=fail-closed（红，人工看日志）| 3=同指纹绕过（绿）
+          [[ $rc -eq 3 ]] && echo "::notice::同指纹已有终态判定，绕过重复 reproduce（ADR-0064 决策 5）"
+          exit "$rc"
+
+      - name: 判定日志留痕（verdict/attestation/账本——审计与 AC-4 抽样数据源）
+        if: always() && steps.ev.outputs.skip != 'true'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: bugflow-logs-${{ steps.ev.outputs.issue }}
+          path: bugflow-logs/
+          if-no-files-found: ignore
+          retention-days: 30
