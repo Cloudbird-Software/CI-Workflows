@@ -131,9 +131,27 @@ jobs:
       - name: adversary 自测 T0-T5
         run: bash pipeline/adversary/tests/run-tests.sh
 
+  entropy-selftest:
+    # 语义熵分歧度量自测（W4-C1 .github#220 / ADR-0066 决策 3，宪法 §4E 判定物
+    # 有效性）——零真实 LLM（fixture 回放经计量 wrapper 落账，与 live 同构）：
+    # AC-1 e2e 歧义定位 INV-2 + 措辞差异不误报（语义聚簇）、AC-2 底噪扣减
+    # （B 记录在案；3−2 不报/4−2 报 + e2e B=2 抑制）、AC-3 质询结构化
+    # （spec 原文引用+条款坐标）与轮次硬上限、AC-4 判定链零 LLM 静态断言
+    # （import 面黑名单 + k 路族标记/各族>=1 路）+ 反投票铁律。
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: 语义熵 fixture 自测（AC-1~AC-4）
+        run: python3 -m unittest discover -s pipeline/entropy/tests -v
+
   gate:
     if: always()
-    needs: [hygiene, test-integrity-selftest, metering-selftest, adversary-selftest]
+    needs: [hygiene, test-integrity-selftest, metering-selftest, adversary-selftest, entropy-selftest]
     runs-on: ubuntu-latest
     timeout-minutes: 5    # testing.yaml "gate<5min" 原则的硬上限
     permissions:

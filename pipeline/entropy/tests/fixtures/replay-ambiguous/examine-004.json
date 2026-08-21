@@ -1,0 +1,1 @@
+{"choices":[{"index":0,"message":{"role":"assistant","content":"{\"statement\": \"我按'只拒绝新到请求'实现；对方按拒绝所有超额请求实现。条款未写明已接纳请求的处置，分歧无法由原文消解。\", \"ambiguity_type\": \"限制对象范围未定义\", \"stance_converged\": true}"}}],"usage":{"prompt_tokens":60,"completion_tokens":50,"total_tokens":110}}

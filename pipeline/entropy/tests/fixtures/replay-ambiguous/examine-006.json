@@ -1,0 +1,1 @@
+{"choices":[{"index":0,"message":{"role":"assistant","content":"{\"statement\": \"我按'只拒绝新到请求'实现；对方按排队降级实现。条款只写'保障核心服务可用'，未规定达成手段，两种读法均成立。\", \"ambiguity_type\": \"目标与手段分离（可选手段多元）\", \"stance_converged\": true}"}}],"usage":{"prompt_tokens":60,"completion_tokens":50,"total_tokens":110}}

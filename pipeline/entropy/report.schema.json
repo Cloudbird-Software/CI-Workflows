@@ -1,0 +1,143 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/Cloudbird-Software/CI-Workflows/blob/main/pipeline/entropy/report.schema.json",
+  "title": "entropy-report/v1",
+  "description": "W4-C1（.github#220，ADR-0066）：语义熵分歧度量报告。k=5 跨族冷上下文独立重派生（族标记入 k 路输入）→ 双向蕴含聚簇 → 底噪扣减判定（跨族簇数−B≥2 才归因）→ [归因] LM vs LM 交叉质询定位条款坐标。铁律：判定=簇数/熵，不是投票。消费方：spec-entropy workflow artifact、红队报告归档（ADR-0066 决策 6）、波次收口对账。落盘前 run.py validate_report 做必填面内置断言。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "mode",
+    "spec_path",
+    "spec_sha256",
+    "k",
+    "lanes",
+    "entailment_engine",
+    "noise",
+    "clusters",
+    "verdict",
+    "cross_examination"
+  ],
+  "properties": {
+    "schema": { "const": "entropy-report/v1" },
+    "mode": { "enum": ["live", "replay"], "description": "live=真实 provider 派生；replay=fixture 回放（零 LLM 自测）" },
+    "spec_path": { "type": "string" },
+    "spec_sha256": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "k": { "const": 5 },
+    "lanes": {
+      "type": "array", "minItems": 5, "maxItems": 5,
+      "description": "k 路派生记录：族标记入输入（AC-4），各族≥1 路由 derive.validate_lanes 保证",
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["lane", "family", "model", "context", "family_marker"],
+        "properties": {
+          "lane": { "type": "integer", "minimum": 1 },
+          "family": { "type": "string" },
+          "model": { "type": "string" },
+          "context": { "enum": ["cold"] },
+          "family_marker": { "const": true }
+        }
+      }
+    },
+    "entailment_engine": { "enum": ["heuristic", "deberta-mnli"] },
+    "noise": {
+      "type": "object", "additionalProperties": false,
+      "required": ["family", "resample_m", "B", "self_clusters_per_clause"],
+      "description": "底噪（AC-2）：同族同提示重采样 m 次的自分歧簇数；B=各条款自簇数保守最大值",
+      "properties": {
+        "family": { "type": "string" },
+        "resample_m": { "type": "integer", "minimum": 2 },
+        "B": { "type": "integer", "minimum": 0 },
+        "self_clusters_per_clause": {
+          "type": "object", "additionalProperties": { "type": "integer", "minimum": 0 }
+        }
+      }
+    },
+    "clusters": {
+      "type": "object", "additionalProperties": false,
+      "required": ["global_lane_clusters", "global_members", "per_clause"],
+      "properties": {
+        "global_lane_clusters": { "type": "integer", "minimum": 1 },
+        "global_members": { "type": "array", "items": { "type": "array", "items": { "type": "string" } } },
+        "per_clause": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object", "additionalProperties": false,
+            "required": ["clusters", "members", "entropy_nats"],
+            "properties": {
+              "clusters": { "type": "integer", "minimum": 1 },
+              "members": { "type": "array", "items": { "type": "array", "items": { "type": "string" } } },
+              "entropy_nats": { "type": "number", "minimum": 0 }
+            }
+          }
+        }
+      }
+    },
+    "verdict": {
+      "type": "object", "additionalProperties": false,
+      "required": ["schema", "rule", "noise_b", "noise_margin", "global_lane_clusters", "attributed", "hotspots", "per_clause"],
+      "properties": {
+        "schema": { "const": "entropy-verdict/v1" },
+        "rule": { "type": "string" },
+        "noise_b": { "type": "integer", "minimum": 0 },
+        "noise_margin": { "const": 2 },
+        "global_lane_clusters": { "type": "integer", "minimum": 1 },
+        "attributed": { "type": "boolean" },
+        "hotspots": { "type": "array", "items": { "type": "string" } },
+        "per_clause": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "required": ["cross_family_clusters", "noise_b", "excess", "attributed", "entropy_nats"]
+          }
+        }
+      }
+    },
+    "cross_examination": {
+      "type": "object", "additionalProperties": false,
+      "required": ["schema", "max_rounds", "rounds_used", "statements"],
+      "properties": {
+        "schema": { "const": "entropy-examination/v1" },
+        "max_rounds": { "type": "integer", "minimum": 1, "description": "轮次硬上限（policy 常量）" },
+        "rounds_used": { "type": "integer", "minimum": 0, "description": "实际轮次（≤max_rounds，run.py validate_report 断言）" },
+        "note": { "type": "string" },
+        "statements": {
+          "type": "array",
+          "description": "两两交叉质询的结构化不一致陈述（AC-3）",
+          "items": {
+            "type": "object", "additionalProperties": false,
+            "required": ["clause", "clause_coordinate", "spec_quote", "pair_clusters", "position_a", "position_b", "statement_a", "statement_b", "rounds", "converged"],
+            "properties": {
+              "clause": { "type": "string", "description": "条款 ID（如 INV-2）" },
+              "clause_coordinate": {
+                "type": "object", "required": ["id", "section", "line"],
+                "properties": { "id": { "type": "string" }, "section": { "type": ["string", "null"] }, "line": { "type": ["integer", "null"] } }
+              },
+              "spec_quote": { "type": "string", "minLength": 1, "description": "spec 原文逐字引用（确定性侧附带，构造上保证为真）" },
+              "pair_clusters": { "type": "array", "items": { "type": "integer" }, "minItems": 2, "maxItems": 2 },
+              "position_a": { "$ref": "#/$defs/position" },
+              "position_b": { "$ref": "#/$defs/position" },
+              "statement_a": { "type": "string" },
+              "statement_b": { "type": "string" },
+              "ambiguity_type": { "type": ["string", "null"] },
+              "rounds": { "type": "integer", "minimum": 1 },
+              "converged": { "type": "boolean" }
+            }
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "position": {
+      "type": "object", "additionalProperties": false,
+      "required": ["cluster", "lane", "family", "reading"],
+      "properties": {
+        "cluster": { "type": "integer" },
+        "lane": { "type": "string" },
+        "family": { "type": ["string", "null"] },
+        "reading": { "type": "string" }
+      }
+    }
+  }
+}

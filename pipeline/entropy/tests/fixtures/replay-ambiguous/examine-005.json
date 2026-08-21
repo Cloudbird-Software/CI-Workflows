@@ -1,0 +1,1 @@
+{"choices":[{"index":0,"message":{"role":"assistant","content":"{\"statement\": \"我按排队降级实现；对方按'只拒绝新到'实现。'限制'一词既可指降级排队也可指准入控制，原文无法裁定。\", \"ambiguity_type\": \"处置动作未定义（措辞含混）\", \"stance_converged\": true}"}}],"usage":{"prompt_tokens":60,"completion_tokens":50,"total_tokens":110}}
