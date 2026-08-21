@@ -1,4 +1,4 @@
-name: suppression-budget
+name: suppression-gate
 # P2-2 抑制标记预算门（ADR-0036 / .github #87）：单 PR 净增阈值（≤3）+ 合入树
 # 总量棘轮（不得高于 policy 基线）+ ADR 逃生门（豁免入账）。
 #
@@ -7,7 +7,7 @@ name: suppression-budget
 # action harden-runner"，v1.5.1 实证、v1.5.0 同文件无 job 正常，二分定位；独立
 # 文件同构于 test-integrity.yml 无此问题）。判定语义与 ADR-0036 原设计一致）：
 #   suppression-budget:
-#     uses: Cloudbird-Software/CI-Workflows/.github/workflows/suppression-budget.yml@<钉住 ref>
+#     uses: Cloudbird-Software/CI-Workflows/.github/workflows/suppression-gate.yml@<钉住 ref>
 #     with:
 #       detector-ref: <与 uses: 的 pin 同值的 40 位 SHA>
 #   gate:
@@ -108,7 +108,7 @@ jobs:
           path: adr-src
           persist-credentials: false
 
-      - name: suppression-budget（P2-2 抑制标记预算门）
+      - name: suppression-gate（P2-2 抑制标记预算门）
         if: github.event_name == 'pull_request'
         env:
           REPO_NAME: ${{ github.event.repository.name }}   # zizmor：模板值经 env 间接引用，不内插进命令

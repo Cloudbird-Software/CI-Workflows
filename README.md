@@ -14,7 +14,7 @@ Cloudbird Software 组织的可复用工作流（唯一真相源）。业务仓�
 | `contract.yml` | 契约兼容性检测门：OpenAPI（oasdiff）/ JSON Schema breaking + DB migration destructive DDL 分类（P2-4，ADR-0038） | 10min |
 | `diff-coverage.yml` | diff coverage 门槛（ADR-0037）：本次 PR 变更行覆盖率 ≥ policy 阈值（非全局覆盖率） | 5min |
 | `release.yml` | 构建 + SLSA 构建溯源 + GitHub Release 附件 | 20min |
-| `suppression-budget.yml` | P2-2 抑制标记预算门（ADR-0036 / .github #87）：净增 ≤3/PR + 合入树总量棘轮 + ADR 逃生门；独立 reusable（v1.5.1 实测内嵌 check.yml job 触发平台 action 解析故障，ADR-0036 修订改独立文件）；必填 `detector-ref` 输入 | 5min |
+| `suppression-gate.yml` | P2-2 抑制标记预算门（ADR-0036 / .github #87）：净增 ≤3/PR + 合入树总量棘轮 + ADR 逃生门；独立 reusable（v1.5.1 实测内嵌 check.yml job 触发平台 action 解析故障，ADR-0036 修订改独立文件）；必填 `detector-ref` 输入 | 5min |
 | `test-integrity.yml` | P2-1 测试篡改检测（ADR-0035/.github #86）：TI-R1 测试文件删除 / TI-R2 断言净下降 / TI-R3 新增抑制标记 / TI-R4 期望值改写 → 红；PR 引用 ADR 可豁免（计数入账） | 5min |
 
 本仓自有 workflow（不可复用，仅本仓 CI）：
