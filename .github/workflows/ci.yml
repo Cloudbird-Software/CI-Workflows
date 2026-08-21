@@ -167,9 +167,50 @@ jobs:
       - name: bugflow 自测 T1-T10
         run: bash pipeline/bugflow/tests/run-tests.sh
 
+  holdout-unseal-selftest:
+    # holdout 揭封 gate 自测（W4-C3 .github#222 / ADR-0068）：sealed_sha256 红/绿、计数化
+    # 输出（stdout 零明细黑名单）、通过率差 >5% exit 1 / ≤5% exit 0、无凭据 fail-closed。
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: 揭封 gate 自测（含 gate 内 pytest runner 安装）
+        run: |
+          python3 -m pip install --disable-pip-version-check --quiet pytest==8.4.2
+          python3 -m unittest discover -s pipeline/holdout-unseal/tests -v
+
+  gate:
+    if: always()
+    needs: [hygiene, test-integrity-selftest, metering-selftest, adversary-selftest, entropy-selftest, bugflow-selftest, holdout-unseal-selftest]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+<<<<<<< HEAD
+      - name: bugflow 自测 T1-T10
+        run: bash pipeline/bugflow/tests/run-tests.sh
+
   gate:
     if: always()
     needs: [hygiene, test-integrity-selftest, metering-selftest, adversary-selftest, entropy-selftest, bugflow-selftest]
+=======
+      - name: 揭封 gate 自测（含 gate 内 pytest runner 安装）
+        run: |
+          python3 -m pip install --disable-pip-version-check --quiet pytest==8.4.2
+          python3 -m unittest discover -s pipeline/holdout-unseal/tests -v
+
+  gate:
+    if: always()
+    needs: [hygiene, test-integrity-selftest, metering-selftest, adversary-selftest, entropy-selftest, holdout-unseal-selftest]
+>>>>>>> 6c07c7e (feat(holdout): 揭封 gate 核心 hash 校验+计数化+通过率差判定（W4-C3 .github#222，ADR-0068）)
     runs-on: ubuntu-latest
     timeout-minutes: 5    # testing.yaml "gate<5min" 原则的硬上限
     permissions:
