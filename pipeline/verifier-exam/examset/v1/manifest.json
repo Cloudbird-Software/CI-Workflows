@@ -1,0 +1,42 @@
+{
+  "composition": {
+    "canary_items": 24,
+    "pairwise_items": 40,
+    "pairwise_note": "双序（位置交换）一致率检查在两序呈现下复用全部成对条目",
+    "total_items": 64
+  },
+  "exam_id": "verifier-entrance-exam",
+  "files": {
+    "llmbar-adversarial.jsonl": {
+      "items": 20,
+      "role": "LLMBar 对抗子集（成对偏好判定，明显/微妙干扰项）",
+      "sha256": "f1568930e1a6bcd9a874656eb9f1ebf4d529882dae0d141301f53471e5735255"
+    },
+    "null-canaries.jsonl": {
+      "items": 24,
+      "role": "null-model 金丝雀（单响应判负，须 100% 判负）",
+      "sha256": "1d7e7dd8325cc1f07f24dd804df6960b1dc9689a6834fbff1c970fec16531d4c"
+    },
+    "rewardbench2-generative.jsonl": {
+      "items": 20,
+      "role": "RewardBench2 生成式子集（成对偏好判定）",
+      "sha256": "5edcc7510f58451d5fb541c450d3c796b772565e67f88f7bcfac12dc67f263ee"
+    }
+  },
+  "freeze_hash": "4596f3d56368d85c2099de09c2bac0e6a723945ef2b559ace1fb5735fc3cc048",
+  "freeze_rule": "冻结=逐文件 sha256 + 总 freeze_hash 双层锚定；freeze_hash = sha256(按文件名排序的'<name> <sha256>\\n' 行)。任何字节改动（含增删条目、改序、改空白）即破坏哈希；考试集变更必须开新版本目录 vN 并在本目录 README 版本史登记——禁止原地修改（宪法 §4C 冻结考试集 / ADR-0072 决策 1）。",
+  "frozen_at": "2026-08-22",
+  "frozen_by": "W5-C3（Cloudbird-Software/.github#226 / ADR-0072）",
+  "hash_algorithm": "sha256",
+  "provenance": {
+    "llmbar_adversarial": "对齐 LLMBar（Prasad et al., Microsoft）对抗配对范式的自构造条目：obvious=明显干扰（排版精美但硬伤），subtle=微妙干扰（风格一致、细节错误）",
+    "null_canaries": "null-model 攻击实证（arXiv:2410.07137）驱动的金丝雀：空响应/模板复读/无理由拒绝必须 100% 判负",
+    "rewardbench2_generative": "结构对齐 allenai RewardBench2 生成式赛道数据格式的自构造条目（未再分发上游数据）"
+  },
+  "results_archive": {
+    "key_format": "judge_id@exam_version@prompt_hash12",
+    "protocol": "成绩以 JSONL artifact 存档于 CI-Workflows verifier-exam workflow（artifact 名 verifier-exam-results），键=上行格式；agent-registry 执照条目必须引用 archive_key（ADR-0072 决策 2）"
+  },
+  "schema": "verifier-exam/manifest/v1",
+  "version": "1.0.0"
+}

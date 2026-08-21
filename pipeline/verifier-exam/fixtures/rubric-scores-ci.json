@@ -1,0 +1,8 @@
+{
+ "fixture_id": "rubric-scores-ci",
+ "note": "CI 回放打分轨道（零真实 LLM）：五维的占位连续分，仅驱动 shadow 数据管道与记录格式验证——不是对任何真实判官的评测。缺 example_freshness 分值=该维数据不足（负债申报路径的自测输入）。",
+ "locatability": 0.5,
+ "entry_clarity": 0.75,
+ "module_depth": 0.5,
+ "naming_vocabulary": 0.75
+}

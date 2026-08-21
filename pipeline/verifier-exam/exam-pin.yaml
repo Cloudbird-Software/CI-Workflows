@@ -1,0 +1,14 @@
+schema: verifier-exam/pin/v1
+# 考试集钉版（W5-C3 .github#226 / ADR-0072 决策 1）：CI 侧操作副本与 archive
+# 正本的供应链锚。freeze_hash = archive 仓 evalsets/verifier-exam/v1/manifest.json
+# 的冻结哈希（逐文件 sha256 聚合）；每日 drift 检查（workflow verifier-exam
+# schedule job）拉 archive main 的 manifest 与本 pin 比对——archive 被改动而
+# 版本号未升（未开 vN+1 目录）即在本仓 main 上红（fail-closed）。
+# 升级考试集 = archive 开新版本目录 + 本仓同步副本与 pin（C1 变更，引用 ADR）。
+examset:
+  repo: Cloudbird-Software/archive
+  path: evalsets/verifier-exam/v1
+  version: 1.0.0
+  frozen_at: "2026-08-22"
+  freeze_hash: 4596f3d56368d85c2099de09c2bac0e6a723945ef2b559ace1fb5735fc3cc048
+  local_vendor: pipeline/verifier-exam/examset/v1   # 与正本字节一致（本地复算校验）
