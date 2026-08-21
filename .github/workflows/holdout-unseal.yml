@@ -51,7 +51,7 @@ jobs:
           persist-credentials: false
       - name: 单元自测（gate/审计器/台账 append-only）
         run: |
-          python3 -m pip install --disable-pip-version-check --quiet pytest==8.4.2 pyyaml==6.0.3 jsonschema==4.23.2
+          python3 -m pip install --disable-pip-version-check --quiet pytest==8.4.2 pyyaml==6.0.3 jsonschema==4.25.1
           python3 -m unittest discover -s pipeline/holdout-unseal/tests -v # audit-ok: unittest 自身文本非 holdout 内容（fixture 名）
       - name: 输出面静态审计（本 workflow job 定义——泄漏面白名单审查，AC-2）
         run: >
@@ -153,7 +153,7 @@ jobs:
           persist-credentials: false
       - name: 试卷层完整性前置（W1-C4 校验红=试卷已损，fail-closed 不揭封）
         run: |
-          python3 -m pip install --disable-pip-version-check --quiet pyyaml==6.0.3 jsonschema==4.23.2 pytest==8.4.2
+          python3 -m pip install --disable-pip-version-check --quiet pyyaml==6.0.3 jsonschema==4.25.1 pytest==8.4.2
           python3 holdout/scripts/validate_entries.py --root holdout
       - name: 揭封 gate（strict：无凭据 fail-closed exit 2；通过率差超阈 exit 1=verdict 不过）
         id: unseal
