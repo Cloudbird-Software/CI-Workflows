@@ -8,7 +8,7 @@ Cloudbird Software 组织的可复用工作流（唯一真相源）。业务仓�
 
 | 工作流 | 用途 | timeout 上限 |
 |---|---|---|
-| `check.yml` | `make setup` + `make check`（lint + test），支持 node / python / go 运行时 | 15min |
+| `check.yml` | `make setup` + `make check`（lint + test，flaky-retry ≤N 入账），支持 node / python / go 运行时；含 `suppression-budget` 门（P2-2，ADR-0036）：抑制标记净增 ≤3/PR + 合入树总量棘轮 + ADR 逃生门（PR 事件判定，非 PR 事件 n/a-success） | 15min |
 | `hygiene.yml` | 大文件/凭据文件拦截 + gitleaks 全历史密钥扫描 + zizmor Actions 安全审计 | 10min |
 | `dep-review.yml` | 依赖漏洞 + 许可证审查（拒绝 AGPL/GPL-3.0/SSPL） | 10min |
 | `contract.yml` | 契约兼容性检测门：OpenAPI（oasdiff）/ JSON Schema breaking + DB migration destructive DDL 分类（P2-4，ADR-0038） | 10min |
