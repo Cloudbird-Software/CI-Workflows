@@ -121,13 +121,17 @@ def parse_unified_diff(text: str) -> dict[str, list[int]]:
         m = _HUNK_RE.match(line)
         if m:
             if current is None:
-                raise ToolError(f"hunk 出现在未识别文件头之后: {line!r}")
+                # 删除文件的 hunk（+++ /dev/null 之后）：合法形态——无新行，消费即可
+                # （v1.5.12 修复：删除文件 PR 曾在此 fail-closed 误红——Use-up-Plan T1 演练实测）
+                in_hunk = True
+                new_lineno = int(m.group(1))
+                continue
             new_lineno = int(m.group(1))
             in_hunk = True
             continue
         if not in_hunk or current is None:
             continue
-        if line.startswith("+"):  # 新增行（含修改行的新侧）
+        if line.startswith("+") and current is not None:  # 新增行（含修改行的新侧；删除文件无 + 行）
             result[current].append(new_lineno)
             new_lineno += 1
         elif line.startswith("-"):
