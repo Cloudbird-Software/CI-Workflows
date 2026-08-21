@@ -103,10 +103,12 @@ jobs:
           PR_TITLE: ${{ github.event.pull_request.title }}
         run: |
           set -euo pipefail
-          gh api "repos/$REPO/pulls/$PR_NUM" -H "Accept: application/vnd.github.diff" > pr.diff
-          test -s pr.diff || { echo "::error::suppression-budget: PR diff 拉取为空（fail-closed）"; exit 1; }
-          printf '%s' "$PR_TITLE" > pr-title.txt
-          gh api "repos/$REPO/pulls/$PR_NUM" --jq '.body // ""' > pr-body.txt
+          # 工件写 RUNNER_TEMP——留在工作区会被总量维度的树扫描计入（v1.5.9 实测
+          # pr.diff 中的标记行被重复计数：净增 5 计成总量 10）
+          gh api "repos/$REPO/pulls/$PR_NUM" -H "Accept: application/vnd.github.diff" > "$RUNNER_TEMP/pr.diff"
+          test -s "$RUNNER_TEMP/pr.diff" || { echo "::error::suppression-budget: PR diff 拉取为空（fail-closed）"; exit 1; }
+          printf '%s' "$PR_TITLE" > "$RUNNER_TEMP/pr-title.txt"
+          gh api "repos/$REPO/pulls/$PR_NUM" --jq '.body // ""' > "$RUNNER_TEMP/pr-body.txt
 
       - name: 取 ADR 清单（agent-registry decisions——逃生门存在性/scope 判定）
         if: github.event_name == 'pull_request'
@@ -130,9 +132,9 @@ jobs:
         run: |
           bash "$RUNNER_TEMP/ciw-sup/scripts/suppression-budget.sh" \
             --repo "$REPO_NAME" \
-            --diff pr.diff \
+            --diff "$RUNNER_TEMP/pr.diff" \
             --tree . \
             --policy "$RUNNER_TEMP/ciw-sup/policy/suppressions.yaml" \
-            --pr-title "$(cat pr-title.txt)" \
-            --pr-body pr-body.txt \
+            --pr-title "$(cat "$RUNNER_TEMP/pr-title.txt")" \
+            --pr-body "$RUNNER_TEMP/pr-body.txt" \
             --adr-dir "$RUNNER_TEMP/adr/decisions"
