@@ -100,8 +100,10 @@ jobs:
           exit $MISSING
 
   org-gate:
-    # 严格聚合器（ADR-0032：skipped≠success，仅 success 放行；本 workflow 上游
-    # 无事件条件 job，无 EXPECTED_SKIP）+ 双轨比对注记（T3 观察期数据积累）
+    # 严格聚合器（ADR-0032：skipped≠success，仅 success 放行）+ 双轨比对注记（T3 观察期数据积累）。
+    # v1.4.2 EXPECTED_SKIP（#135）：org-adr-required 是事件条件 job（仅 PR 事件跑），
+    # merge_group 下设计性 skip——聚合器须显式豁免，否则 merge queue 全量弹回；
+    # 其余任何 skip 仍红（豁免白名单只有这一个 key + 只在 merge_group 事件）。
     if: always() && github.repository != 'Cloudbird-Software/CI-Workflows'
     needs: [org-hygiene, org-adr-required]
     runs-on: ubuntu-latest
@@ -109,13 +111,19 @@ jobs:
     permissions:
       contents: read
     steps:
-      - name: All required jobs green?（严格断言）
+      - name: All required jobs green?（严格断言 + EXPECTED_SKIP）
         env:
           NEEDS: ${{ toJSON(needs) }}
+          EVENT_NAME: ${{ github.event_name }}   # zizmor：模板值经 env 间接引用
         run: |
           echo "$NEEDS"
-          if echo "$NEEDS" | jq -e '[to_entries[] | select(.value.result != "success")] | length > 0' >/dev/null; then
-            echo "::error::org-gate 上游未全绿（skipped≠success：严格断言——ADR-0032/0046）"; exit 1
+          if [[ "$EVENT_NAME" == "merge_group" ]]; then
+            OK=$(echo "$NEEDS" | jq -r 'to_entries | all(.value.result == "success" or (.key == "org-adr-required" and .value.result == "skipped"))')
+          else
+            OK=$(echo "$NEEDS" | jq -r 'to_entries | all(.value.result == "success")')
+          fi
+          if [[ "$OK" != "true" ]]; then
+            echo "::error::org-gate 上游未全绿（skipped≠success：严格断言——ADR-0032/0046；merge_group 下 org-adr-required 设计性 skip 豁免，v1.4.2/#135）"; exit 1
           fi
       - name: 双轨比对注记（T3 观察期）
         # 观察期数据：本地 gate（旧轨）与中心 org-gate（新轨）结论不一致时发
