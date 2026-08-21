@@ -1,0 +1,213 @@
+name: holdout-unseal
+# holdout 揭封 gate 接线（W4-C3 .github#222 / ADR-0068；宪法 §4B/§6）
+#
+# 凭据隔离（ADR-0068 决策 1）：holdout 写回专用凭据 HOLDOUT_UNSEAL_TOKEN 只定义在
+# `verdict` environment（environment 级绑定），只有 live job 声明该 environment；
+# pull_request 触发的 selftest/demo job 结构性接触不到凭据——实现阶段所有 workflow
+# 无此凭据。宪法铁律（§18 断言持续保证）：cloudbrid-agent App 不挂载 holdout 仓；
+# 本 workflow 只以公开只读 checkout 访问 holdout。
+#
+# verdict 接入（宪法 §3 Feature 流 verdict 阶段）：经 workflow_call 调用，caller 传
+# main-pass-rate（主套件通过率）与 secrets.holdout-unseal-token；gate exit 1=
+# needs-human 升级（state:needs-human 标签由 verdict conductor 打，本 gate 出
+# exit 1 + escalation 记录）。阈值在 pipeline/holdout-unseal/config.json（§14 族）。
+on:
+  pull_request: # 本仓 PR：单元自测+静态输出面审计+fixture 揭封演示（AC-1 e2e，零凭据面）
+  workflow_dispatch:
+    inputs:
+      main-pass-rate:
+        { description: "主套件通过率（0..1 或 98%）——fixture 演示缺省 0.75", default: "0.75", type: string }
+      mode:
+        { description: "fixture-demo=演示；live=真揭封（需 verdict environment 凭据）", type: choice, options: [fixture-demo, live], default: fixture-demo }
+      holdout-ref: { description: "holdout checkout ref", default: "main", type: string }
+      pr: { description: "live 模式 PR 号（台账/明细引用）", default: "0", type: string }
+  workflow_call:
+    inputs:
+      main-pass-rate: { description: "主套件通过率（0..1 或 98%）", required: true, type: string }
+      holdout-ref: { description: "holdout checkout ref", default: "main", type: string }
+      pr: { description: "PR 号（台账/明细引用）", default: "0", type: string }
+    secrets:
+      holdout-unseal-token:
+        { description: "holdout 写回专用凭据（仅 verdict 阶段可用；缺席=gate fail-closed exit 2）" }
+
+permissions:
+  contents: read
+
+concurrency:
+  group: holdout-unseal-${{ github.ref }}
+  cancel-in-progress: false # live 揭封不中途取消：台账 append 与明细写回的完整性优先于排队效率
+
+jobs:
+  selftest:
+    # 本仓 PR 与手动 fixture 演示：不声明 verdict environment=结构性无凭据（ADR-0068 决策 1）
+    if: github.event_name != 'workflow_call'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: 单元自测（gate/审计器/台账 append-only）
+        run: |
+          python3 -m pip install --disable-pip-version-check --quiet pytest==8.4.2 pyyaml==6.0.3 jsonschema==4.25.1
+          python3 -m unittest discover -s pipeline/holdout-unseal/tests -v # audit-ok: unittest 自身文本非 holdout 内容（fixture 名）
+      - name: 输出面静态审计（本 workflow job 定义——泄漏面白名单审查，AC-2）
+        run: >
+          python3 pipeline/holdout-unseal/audit_outputs.py static
+          --workflow .github/workflows/holdout-unseal.yml # audit-ok: 回显的是本仓自身代码行（非 holdout 内容）
+
+      - name: Checkout holdout（公开只读；App 不挂载该仓，宪法 §18 断言持续保证）
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: Cloudbird-Software/holdout
+          ref: main
+          path: holdout
+          persist-credentials: false
+
+      - name: fixture 揭封演示（AC-1 e2e：封存→schema 校验→揭封计数→台账→日志审计）
+        env:
+          PR_NUM: ${{ github.event.pull_request.number || '0' }} # zizmor：模板值经 env 间接引用
+          RUN_ID: ${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          test -f holdout/scripts/seal.py || { echo "::error::holdout@main 缺 W4-C3 揭封脚本（seal.py/unseal-log.py）——holdout 仓 w4c3-seal-scripts PR 合并后重跑本 workflow"; exit 1; } # audit-ok: 仅失败原因计数级说明
+          # 1) mini 测试集 → sealed 条目（写入 checkout 副本，绝不 push；fixture 内容非真实考卷）
+          python3 holdout/scripts/seal.py --root holdout \
+            --file pipeline/holdout-unseal/tests/fixtures/demo_mini/test_holdout_demo_a.py \
+            --file pipeline/holdout-unseal/tests/fixtures/demo_mini/test_holdout_demo_b.py \
+            --ac-ref "IR-0003/W4-C3/AC-1" --sealed-by "W4-C3-demo"
+          # 2) 条目封存完整性（W1-C4 schema/哈希/index/canary）——sealed 条目必须过条目 schema（AC-1）
+          python3 holdout/scripts/validate_entries.py --root holdout
+          # 3) 揭封 run-1：主套件 75% vs holdout 4/5=80% → 差 -5% ≤ 5% → exit 0
+          set +e
+          python3 pipeline/holdout-unseal/unseal_gate.py --holdout-root holdout \
+            --main-pass-rate 0.75 --pr "$PR_NUM" --run-id "$RUN_ID-1" \
+            --record-out "$RUNNER_TEMP/rec1.json" --detail-out "$RUNNER_TEMP/detail1.md" \
+            --banned-out "$RUNNER_TEMP/banned1.txt" --always-detail --detail-mode artifact \
+            2>&1 | tee "$RUNNER_TEMP/gate1.log" # audit-ok: 采集 gate stdout（契约=计数化）供泄漏审计
+          rc1=${PIPESTATUS[0]}
+          set -e
+          # 4) 揭封 run-2（重放=AC-3 append-only 演示）：主套件 100% vs 80% → 差 20% > 5% → exit 1
+          set +e
+          python3 pipeline/holdout-unseal/unseal_gate.py --holdout-root holdout \
+            --main-pass-rate 1.0 --pr "$PR_NUM" --run-id "$RUN_ID-2" \
+            --record-out "$RUNNER_TEMP/rec2.json" --detail-out "$RUNNER_TEMP/detail2.md" \
+            --banned-out "$RUNNER_TEMP/banned2.txt" --always-detail --detail-mode artifact \
+            2>&1 | tee "$RUNNER_TEMP/gate2.log" # audit-ok: 采集 gate stdout（契约=计数化）供泄漏审计
+          rc2=${PIPESTATUS[0]}
+          set -e
+          test "$rc1" -eq 0 || { echo "::error::run-1 预期 exit 0 实得 $rc1"; exit 1; } # audit-ok: 仅退出码
+          test "$rc2" -eq 1 || { echo "::error::run-2 预期 exit 1（升级）实得 $rc2"; exit 1; } # audit-ok: 仅退出码
+          # 5) 台账：两条记录 append-only 落账 + 验链（AC-3；e2e 用 holdout 真仓脚本）
+          python3 holdout/scripts/unseal-log.py append --record "$RUNNER_TEMP/rec1.json" --ledger holdout/ledger/unseal.jsonl
+          python3 holdout/scripts/unseal-log.py append --record "$RUNNER_TEMP/rec2.json" --ledger holdout/ledger/unseal.jsonl
+          python3 holdout/scripts/unseal-log.py verify --ledger holdout/ledger/unseal.jsonl
+          # 6) 运行日志泄漏审计：banned 词表（gate 产出的测试名）+ canary registry（诱饵联动，宪法 §6）
+          python3 pipeline/holdout-unseal/audit_outputs.py scan --input "$RUNNER_TEMP/gate1.log" --banned "$RUNNER_TEMP/banned1.txt" --registry holdout/canary/registry.yaml
+          python3 pipeline/holdout-unseal/audit_outputs.py scan --input "$RUNNER_TEMP/gate2.log" --banned "$RUNNER_TEMP/banned2.txt" --registry holdout/canary/registry.yaml
+          echo "demo 完成：计数化输出两跑（0/1 退出码），台账两行验链绿，日志零泄漏" # audit-ok: 固定文案无变量
+
+      - name: 无凭据 → 明细走 artifact（ADR-0068 决策 3 的诚实降级路径，注明）
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: holdout-unseal-demo-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/detail1.md
+            ${{ runner.temp }}/detail2.md
+            ${{ runner.temp }}/rec1.json
+            ${{ runner.temp }}/rec2.json
+            holdout/ledger/unseal.jsonl
+          retention-days: 14
+          if-no-files-found: warn # 前置步骤失败时保持根因可见（job 已红）
+
+      - name: Run 摘要
+        if: always()
+        run: |
+          {
+            echo "## holdout-unseal（W4-C3 / ADR-0068）" # audit-ok: 固定标题
+            echo "- PR check 只显示计数（AC-1）；失败明细在 artifact（无 holdout 写回凭据的诚实降级，报告注明）" # audit-ok: 固定文案
+            echo "- 台账 append-only 两行验链绿（AC-3）；运行日志泄漏审计绿（AC-2）" # audit-ok: 固定文案
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  live:
+    # verdict 阶段真揭封（workflow_call）或手动 live 演习——唯一接触凭据的 job
+    if: github.event_name == 'workflow_call' || (github.event_name == 'workflow_dispatch' && inputs.mode == 'live')
+    environment: verdict # ADR-0068 决策 1：凭据环境级绑定（secret 由 owner 在 verdict environment 配置）
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Checkout holdout（verdict 授权面：公开读 + 专用凭据写回）
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: Cloudbird-Software/holdout
+          ref: ${{ inputs.holdout-ref }}
+          path: holdout
+          persist-credentials: false
+      - name: 试卷层完整性前置（W1-C4 校验红=试卷已损，fail-closed 不揭封）
+        run: |
+          python3 -m pip install --disable-pip-version-check --quiet pyyaml==6.0.3 jsonschema==4.25.1 pytest==8.4.2
+          python3 holdout/scripts/validate_entries.py --root holdout
+      - name: 揭封 gate（strict：无凭据 fail-closed exit 2；通过率差超阈 exit 1=verdict 不过）
+        id: unseal
+        env:
+          GH_TOKEN: ${{ secrets.holdout-unseal-token }} # 仅本 job 本步骤（zizmor secret-exposure 最小面）
+          MAIN_RATE: ${{ inputs.main-pass-rate }} # zizmor：模板值经 env 间接引用
+          PR_NUM: ${{ inputs.pr }}
+          HOLDOUT_REF: ${{ inputs.holdout-ref }}
+        run: |
+          set -uo pipefail
+          python3 pipeline/holdout-unseal/unseal_gate.py --holdout-root holdout \
+            --main-pass-rate "$MAIN_RATE" --pr "$PR_NUM" --run-id "$GITHUB_RUN_ID" \
+            --record-out "$RUNNER_TEMP/rec.json" --detail-out "$RUNNER_TEMP/detail.md" \
+            --banned-out "$RUNNER_TEMP/banned.txt" 2>&1 | tee "$RUNNER_TEMP/gate.log" # audit-ok: gate stdout=计数化契约
+          echo "gate_rc=${PIPESTATUS[0]}" >> "$GITHUB_OUTPUT" # audit-ok: 写 step output 文件，非日志
+          exit 0 # 退出码延后到写回完成后统一裁决（exit 1 必须在台账/明细落定之后）
+      - name: 运行日志泄漏审计（AC-2：测试名/marker 零出现）
+        run: >
+          python3 pipeline/holdout-unseal/audit_outputs.py scan --input "$RUNNER_TEMP/gate.log"
+          --banned "$RUNNER_TEMP/banned.txt" --registry holdout/canary/registry.yaml
+          # audit-ok: 审计器自身输出只报位置不报内容
+      - name: 失败明细写回 holdout 仓 issue（ADR-0068 决策 3：仅 owner/verdict 可达）
+        env:
+          GH_TOKEN: ${{ secrets.holdout-unseal-token }}
+          PR_NUM: ${{ inputs.pr }}
+        run: |
+          set -euo pipefail
+          test -f "$RUNNER_TEMP/detail.md" || exit 0
+          if [ -z "${GH_TOKEN:-}" ]; then echo "::error::需写明细但无凭据（gate 已 fail-closed exit 2 注明）"; exit 1; fi # audit-ok: 固定文案
+          gh issue create -R Cloudbird-Software/holdout \
+            --title "unseal-detail: ${GITHUB_REPOSITORY}#${PR_NUM} run ${GITHUB_RUN_ID}" \
+            --body-file "$RUNNER_TEMP/detail.md"
+      - name: 台账 append + 回传 holdout 仓（AC-3：append-only，API commit）
+        env:
+          GH_TOKEN: ${{ secrets.holdout-unseal-token }}
+          PR_NUM: ${{ inputs.pr }}
+        run: |
+          set -euo pipefail
+          python3 holdout/scripts/unseal-log.py append --record "$RUNNER_TEMP/rec.json" --ledger holdout/ledger/unseal.jsonl
+          python3 holdout/scripts/unseal-log.py verify --ledger holdout/ledger/unseal.jsonl
+          if [ -n "${GH_TOKEN:-}" ]; then
+            base=$(gh api "repos/Cloudbird-Software/holdout/contents/ledger/unseal.jsonl?ref=main" --jq '.sha' 2>/dev/null || true) # audit-ok: jq 取 sha 入变量，不进日志
+            content=$(base64 -w0 holdout/ledger/unseal.jsonl)
+            jq -n --arg c "$content" --arg b "${base:-}" --arg m "unseal: ${GITHUB_REPOSITORY}#${PR_NUM} run ${GITHUB_RUN_ID}（W4-C3/ADR-0068）" '{message:$m, content:$c, branch:"main"}' > "$RUNNER_TEMP/commit.json" # audit-ok: jq 构造 commit 体写文件，非日志
+            gh api -X PUT "repos/Cloudbird-Software/holdout/contents/ledger/unseal.jsonl" --input "$RUNNER_TEMP/commit.json" >/dev/null
+          else
+            echo "::error::无凭据回传台账——fail-closed（缺席即停，不静默降级）"; exit 1 # audit-ok: 固定文案
+          fi
+      - name: 裁决（gate 退出码=verdict 结论；exit 1=needs-human 升级）
+        env:
+          GATE_RC: ${{ steps.unseal.outputs.gate_rc }} # zizmor：steps 输出经 env 间接引用
+        run: |
+          case "${GATE_RC:-2}" in
+            0) echo "holdout verdict: 过（计数与率差均达标）" ;; # audit-ok: 固定文案
+            1) echo "::error::通过率差超阈——needs-human 升级（state:needs-human），verdict 不过（ADR-0068 决策 6）"; exit 1 ;; # audit-ok: 固定文案
+            *) echo "::error::gate exit ${GATE_RC:-2}（2=凭据/环境 fail-closed，3=sealed_sha256 不符拒揭封）"; exit "${GATE_RC:-2}" ;; # audit-ok: 仅退出码
+          esac
