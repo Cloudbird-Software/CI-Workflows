@@ -92,9 +92,29 @@ jobs:
       - name: T8 fixtures（15 case：四类篡改 + 正常 + 边界）
         run: bash scripts/test-integrity-fixtures/run.sh
 
+  metering-selftest:
+    # 计量 wrapper 自测（W2-C3 .github#216 / ADR-0062 决策 6，宪法 §4E 判定物
+    # 有效性）：T1 流式聚合恰一条（spike T8 教训）+ invoke_id 去重执法、T2 BEH-09
+    # 字段齐全、T3 hash 链篡改负控制、T4 INV-06 直连扫描双形态、T5 按角色档
+    # 归账、T6 llm-usage/v1 兼容件、T7 ledger-sync 干跑——零真实 LLM 调用。
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: PyYAML（scan-patterns.yaml / 角色档表解析）
+        run: python3 -m pip install --disable-pip-version-check --quiet pyyaml==6.0.3
+      - name: 计量自测 T1-T7
+        run: bash pipeline/metering/selftest/run-selftest.sh
+      - name: INV-06 仓级默认扫描（豁免面=wrapper 本体+一期入口，见 scan-patterns.yaml）
+        run: bash pipeline/metering/scan-direct-sdk.sh
+
   gate:
     if: always()
-    needs: [hygiene, test-integrity-selftest]
+    needs: [hygiene, test-integrity-selftest, metering-selftest]
     runs-on: ubuntu-latest
     timeout-minutes: 5    # testing.yaml "gate<5min" 原则的硬上限
     permissions:

@@ -1,0 +1,37 @@
+version: 1
+# ============================================================================
+# scan-patterns.yaml —— INV-06 直连模式表（W2-C3 .github#216，ADR-0062 决策 1）
+# scan-direct-sdk.sh 消费：命中任一模式 = 绕过计量 wrapper 的直连调用 → exit 1。
+# 版本化资产：新绕过手法经红队回流后在此增行（改动走 PR，C1——引 ADR）。
+# regex 为 python re 语法（对行内文本 search，非整行 match）。
+# 豁免（exempt_paths，对仓根默认扫描生效；显式指定路径的审计扫描同样适用）：
+#   pipeline/metering/ —— wrapper 本体（唯一入口自身：curl/mkreq 直连是经审实现）
+#   scripts/llm-call.sh —— 第一期计量入口（ADR-0048 落地件，仍全程计量）
+#   pipeline/metering/selftest/fixtures/ —— 自测样本（故意构造的违例形态，仅被
+#     显式指定该目录的扫描消费；自测先拷贝到临时目录再扫，避免豁免路径遮蔽）
+# 行内豁免标记：`# metering-allow: <pattern-id>`（当场留痕、可审计的人为放行）
+# ============================================================================
+exempt_paths:
+  - '^pipeline/metering/'
+  - '^scripts/llm-call\.sh$'
+
+patterns:
+  - id: openai-sdk-import
+    description: 裸 OpenAI SDK import（须经 pipeline/metering/metering-wrapper.sh）
+    regex: '\b(?:import\s+openai\b|from\s+openai\s+import\b|require\s*\(\s*["'']openai["'']\s*\))'
+  - id: openai-client-init
+    description: OpenAI 系 SDK client 实例化
+    regex: '\b(?:OpenAI|AsyncOpenAI|AzureOpenAI)\s*\('
+  - id: anthropic-sdk-import
+    description: 裸 Anthropic SDK import
+    regex: '\b(?:import\s+anthropic\b|from\s+anthropic\s+import\b)'
+  - id: curl-direct-llm
+    description: curl 直打 LLM provider 端点（wrapper 外的直连形态）
+    regex: '\bcurl\b[^\n]*(?:api\.openai\.com|open\.bigmodel\.cn|api\.anthropic\.com|generativelanguage\.googleapis\.com|api\.deepseek\.com)'
+  - id: http-lib-llm-endpoint
+    description: requests/httpx/urllib 直打 LLM provider 端点
+    regex: '\b(?:requests|httpx|urllib)\b[^\n]*(?:api\.openai\.com|open\.bigmodel\.cn|api\.anthropic\.com|api\.deepseek\.com)'
+
+scan_globs: ["*.py", "*.sh", "*.js", "*.ts", "*.mjs", "*.cjs"]
+# 注：*.yml/*.yaml 不扫——workflow 中出现 provider 域名（harden-runner 白名单、
+# env 默认值）不是调用行为，扫它会制造假阳性；调用只发生在脚本/代码里。

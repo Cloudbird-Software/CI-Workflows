@@ -119,7 +119,12 @@ jobs:
               f.write(f"temperature={r['temperature']}\n")
               f.write(f"thinking={r.get('thinking', '')}\n")
           EOF
-      - name: LLM 调用（计量 wrapper，ADR-0048）
+      - name: LLM 调用（计量 wrapper 完整版——W2-C3 .github#216，ADR-0062）
+        # scripts/llm-call.sh（ADR-0048 第一期）→ pipeline/metering/metering-wrapper.sh：
+        # invoke 聚合 + JSONL hash 链账本（GATE_METERING_DIR 默认 .metering，本 run 留痕）+
+        # --usage-compat-dir 产出 llm-usage/v1 兼容件（下游 usage-path.txt/spec-pr.py 零改动）。
+        # 账本不外推：本 workflow 的 App token 是目标仓单仓作用域（AG-2），跨仓推
+        # CI-Workflows metering-ledger 需另配 token 拓扑（随 conductor 事件面波次接入）。
         env:
           LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
           MODEL: ${{ steps.role.outputs.model }}
@@ -128,10 +133,12 @@ jobs:
           THINKING: ${{ steps.role.outputs.thinking }}
         run: |
           ARGS=(--model "$MODEL" --system-file sys.txt --prompt-file prompt.txt
-                --max-tokens "$MAX_TOKENS" --temperature "$TEMPERATURE" --tag spec-author)
+                --max-tokens "$MAX_TOKENS" --temperature "$TEMPERATURE"
+                --role spec-author --tag spec-author --usage-compat-dir llm-usage)
           [[ -n "$THINKING" ]] && ARGS+=(--thinking "$THINKING")
-          bash scripts/llm-call.sh "${ARGS[@]}" > spec-draft.md
+          bash pipeline/metering/metering-wrapper.sh "${ARGS[@]}" > spec-draft.md
           echo "spec 草稿字节：$(wc -c < spec-draft.md)"
+          bash pipeline/metering/metering-verify.sh --dir .metering
           ls -1 "$PWD/llm-usage"/usage-*.json | head -1 > usage-path.txt
       - name: g010 过渡校验（结构 + 注入双扫 + 事件真值覆写）
         env:

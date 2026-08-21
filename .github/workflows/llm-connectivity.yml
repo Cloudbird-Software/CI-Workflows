@@ -6,6 +6,9 @@ name: llm-connectivity
 #
 # 出向白名单（INV-06 第一期形态）：仅 github 域 + provider 域名
 # （harden-runner egress-policy block——白名单外一律阻断，含 DNS 探测类）。
+# W2-C3（.github#216，ADR-0062）：调用改经计量 wrapper 完整版（pipeline/metering/
+# ——invoke 聚合 + hash 链），并把本 run 计量账本同步到 metering-ledger 分支
+# （cost-check LLM 预算通道数据源）。
 on:
   workflow_dispatch:
     inputs:
@@ -17,10 +20,18 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: llm-connectivity
+  cancel-in-progress: false   # 账本同步不并发（409 冲突由重跑续接，错峰更稳）
+
 jobs:
   probe:
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    # job 级授权（顶层仍最小读）：contents:write 仅为账本同步步骤推
+    # metering-ledger 分支所需（同仓 GITHUB_TOKEN）；probe 调用本身只读
+    permissions:
+      contents: write
     steps:
       - name: 出向白名单（仅 github + provider，INV-06）
         uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c # v2.21.0
@@ -33,15 +44,16 @@ jobs:
             open.bigmodel.cn:443
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          persist-credentials: false
-      - name: 最小调用（max_tokens=16 + thinking disabled，经计量 wrapper）
+          persist-credentials: false   # 账本同步走显式 GH_TOKEN 的 contents API，不落 git 凭据
+      - name: 最小调用（max_tokens=16 + thinking disabled，经计量 wrapper 完整版——W2-C3/ADR-0062）
         env:
           LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
           LLM_PROBE_MODEL: ${{ inputs.model || 'glm-4.5-air' }}
         run: |
           printf 'connectivity probe' > /tmp/p.txt
-          reply=$(bash scripts/llm-call.sh --model "$LLM_PROBE_MODEL" \
-            --prompt-file /tmp/p.txt --max-tokens 16 --temperature 0 --thinking disabled --tag connectivity)
+          reply=$(bash pipeline/metering/metering-wrapper.sh --model "$LLM_PROBE_MODEL" \
+            --prompt-file /tmp/p.txt --max-tokens 16 --temperature 0 --thinking disabled \
+            --role probe --tag connectivity --usage-compat-dir llm-usage)
           echo "reply(≤200B): ${reply:0:200}"
       - name: usage 记录入 run 摘要（BEH-09 留痕）
         run: |
@@ -53,3 +65,9 @@ jobs:
             echo '```'
           } >>"$GITHUB_STEP_SUMMARY"
           cat "$f"
+      - name: 计量账本验链 + 同步（metering-ledger 分支——cost-check LLM 预算通道数据源，ADR-0062）
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          bash pipeline/metering/metering-verify.sh --dir .metering
+          bash pipeline/metering/ledger-sync.sh --dir .metering --branch metering-ledger
