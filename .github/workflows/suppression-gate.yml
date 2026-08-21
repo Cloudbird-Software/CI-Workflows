@@ -108,7 +108,7 @@ jobs:
           gh api "repos/$REPO/pulls/$PR_NUM" -H "Accept: application/vnd.github.diff" > "$RUNNER_TEMP/pr.diff"
           test -s "$RUNNER_TEMP/pr.diff" || { echo "::error::suppression-budget: PR diff 拉取为空（fail-closed）"; exit 1; }
           printf '%s' "$PR_TITLE" > "$RUNNER_TEMP/pr-title.txt"
-          gh api "repos/$REPO/pulls/$PR_NUM" --jq '.body // ""' > "$RUNNER_TEMP/pr-body.txt
+          gh api "repos/$REPO/pulls/$PR_NUM" --jq '.body // ""' > "$RUNNER_TEMP/pr-body.txt"
 
       - name: 取 ADR 清单（agent-registry decisions——逃生门存在性/scope 判定）
         if: github.event_name == 'pull_request'
