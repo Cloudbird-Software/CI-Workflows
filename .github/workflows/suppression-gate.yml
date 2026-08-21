@@ -69,7 +69,7 @@ jobs:
         with:
           repository: Cloudbird-Software/CI-Workflows
           ref: ${{ inputs.detector-ref }}
-          path: ciw-sup
+          path: ciw-sup-tmp
           persist-credentials: false
 
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
@@ -77,13 +77,22 @@ jobs:
         with:
           python-version: "3.12"
 
+      - name: 检测器就位（拷出到 RUNNER_TEMP 即删——工作区残留会使总量维度把检测器
+          # 自带 fixture 标记计入被审树：v1.5.8 实测 total=34 vs 基线 0 误报，靠 ADR-0036
+          # 豁免掩盖——本修复根除）
+        if: github.event_name == 'pull_request'
+        run: |
+          mkdir -p "$RUNNER_TEMP/ciw-sup" "$RUNNER_TEMP/adr"
+          cp -r ciw-sup-tmp/. "$RUNNER_TEMP/ciw-sup/"
+          rm -rf ciw-sup-tmp
+
       - name: 安装钉哈希依赖（PyYAML，与 requirements-test-integrity.txt 同锚）
         if: github.event_name == 'pull_request'
-        run: pip install -q --require-hashes -r ciw-sup/.github/requirements-test-integrity.txt
+        run: pip install -q --require-hashes -r "$RUNNER_TEMP/ciw-sup/.github/requirements-test-integrity.txt"
 
       - name: T1–T6 自测（执法前 fixture 校验——44 断言，工具自身算错比漏检更糟）
         if: github.event_name == 'pull_request'
-        run: bash ciw-sup/scripts/suppression-budget-selftest.sh
+        run: bash "$RUNNER_TEMP/ciw-sup/scripts/suppression-budget-selftest.sh"
 
       - name: 取 PR diff / 标题 / 正文（pulls API）
         if: github.event_name == 'pull_request'
@@ -105,19 +114,25 @@ jobs:
         with:
           repository: Cloudbird-Software/agent-registry
           sparse-checkout: decisions
-          path: adr-src
+          path: adr-src-tmp
           persist-credentials: false
+
+      - name: ADR 清单就位（同款拷出即删）
+        if: github.event_name == 'pull_request'
+        run: |
+          cp -r adr-src-tmp/. "$RUNNER_TEMP/adr/"
+          rm -rf adr-src-tmp
 
       - name: suppression-gate（P2-2 抑制标记预算门）
         if: github.event_name == 'pull_request'
         env:
           REPO_NAME: ${{ github.event.repository.name }}   # zizmor：模板值经 env 间接引用，不内插进命令
         run: |
-          bash ciw-sup/scripts/suppression-budget.sh \
+          bash "$RUNNER_TEMP/ciw-sup/scripts/suppression-budget.sh" \
             --repo "$REPO_NAME" \
             --diff pr.diff \
             --tree . \
-            --policy ciw-sup/policy/suppressions.yaml \
+            --policy "$RUNNER_TEMP/ciw-sup/policy/suppressions.yaml" \
             --pr-title "$(cat pr-title.txt)" \
             --pr-body pr-body.txt \
-            --adr-dir adr-src/decisions
+            --adr-dir "$RUNNER_TEMP/adr/decisions"
