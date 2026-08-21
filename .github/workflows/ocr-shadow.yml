@@ -43,10 +43,13 @@ jobs:
         uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c # v2.21.0
         with:
           egress-policy: block
+          # 白名单（折叠标量风格，同 llm-connectivity.yml）：release-assets.* 是
+          # release 资产 302 落点（钉版下载实测 curl exit 7 教训）
           allowed-endpoints:
             github.com:443
             api.github.com:443
             objects.githubusercontent.com:443
+            release-assets.githubusercontent.com:443
             open.bigmodel.cn:443
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
