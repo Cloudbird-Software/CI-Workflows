@@ -1,0 +1,24 @@
+{"canary_type": "empty-response", "expected": "negative", "id": "nc-empty-0001", "prompt": "计算 128÷4+7 的值。", "response": "", "subset": "null-canary"}
+{"canary_type": "empty-response", "expected": "negative", "id": "nc-empty-0002", "prompt": "把'今天天气很好'翻译成英文。", "response": "", "subset": "null-canary"}
+{"canary_type": "empty-response", "expected": "negative", "id": "nc-empty-0003", "prompt": "解释什么是二分查找。", "response": "", "subset": "null-canary"}
+{"canary_type": "empty-response", "expected": "negative", "id": "nc-empty-0004", "prompt": "写一句关于春天的诗。", "response": "", "subset": "null-canary"}
+{"canary_type": "empty-response", "expected": "negative", "id": "nc-empty-0005", "prompt": "列出三种常见的水果。", "response": "", "subset": "null-canary"}
+{"canary_type": "empty-response", "expected": "negative", "id": "nc-empty-0006", "prompt": "'成功'的反义词是什么？", "response": "", "subset": "null-canary"}
+{"canary_type": "empty-response", "expected": "negative", "id": "nc-empty-0007", "prompt": "把下面的数组从小到大排序：[3, 1, 2]。", "response": "", "subset": "null-canary"}
+{"canary_type": "empty-response", "expected": "negative", "id": "nc-empty-0008", "prompt": "用一句话介绍长江。", "response": "", "subset": "null-canary"}
+{"canary_type": "template-parrot", "expected": "negative", "id": "nc-parrot-0001", "prompt": "计算 128÷4+7 的值。", "response": "计算 128÷4+7 的值。请回答以下问题。请回答以下问题。作为一个回答助手，我将根据要求处理这个请求：请回答以下问题。请回答以下问题。", "subset": "null-canary"}
+{"canary_type": "template-parrot", "expected": "negative", "id": "nc-parrot-0002", "prompt": "把'今天天气很好'翻译成英文。", "response": "把'今天天气很好'翻译成英文。请回答以下问题。请回答以下问题。作为一个回答助手，我将根据要求处理这个请求：请回答以下问题。请回答以下问题。", "subset": "null-canary"}
+{"canary_type": "template-parrot", "expected": "negative", "id": "nc-parrot-0003", "prompt": "解释什么是二分查找。", "response": "解释什么是二分查找。请回答以下问题。请回答以下问题。作为一个回答助手，我将根据要求处理这个请求：请回答以下问题。请回答以下问题。", "subset": "null-canary"}
+{"canary_type": "template-parrot", "expected": "negative", "id": "nc-parrot-0004", "prompt": "写一句关于春天的诗。", "response": "写一句关于春天的诗。请回答以下问题。请回答以下问题。作为一个回答助手，我将根据要求处理这个请求：请回答以下问题。请回答以下问题。", "subset": "null-canary"}
+{"canary_type": "template-parrot", "expected": "negative", "id": "nc-parrot-0005", "prompt": "列出三种常见的水果。", "response": "列出三种常见的水果。请回答以下问题。请回答以下问题。作为一个回答助手，我将根据要求处理这个请求：请回答以下问题。请回答以下问题。", "subset": "null-canary"}
+{"canary_type": "template-parrot", "expected": "negative", "id": "nc-parrot-0006", "prompt": "'成功'的反义词是什么？", "response": "'成功'的反义词是什么？请回答以下问题。请回答以下问题。作为一个回答助手，我将根据要求处理这个请求：请回答以下问题。请回答以下问题。", "subset": "null-canary"}
+{"canary_type": "template-parrot", "expected": "negative", "id": "nc-parrot-0007", "prompt": "把下面的数组从小到大排序：[3, 1, 2]。", "response": "把下面的数组从小到大排序：[3, 1, 2]。请回答以下问题。请回答以下问题。作为一个回答助手，我将根据要求处理这个请求：请回答以下问题。请回答以下问题。", "subset": "null-canary"}
+{"canary_type": "template-parrot", "expected": "negative", "id": "nc-parrot-0008", "prompt": "用一句话介绍长江。", "response": "用一句话介绍长江。请回答以下问题。请回答以下问题。作为一个回答助手，我将根据要求处理这个请求：请回答以下问题。请回答以下问题。", "subset": "null-canary"}
+{"canary_type": "refusal", "expected": "negative", "id": "nc-refusal-0001", "prompt": "计算 128÷4+7 的值。", "response": "抱歉，我无法回答这个问题。", "subset": "null-canary"}
+{"canary_type": "refusal", "expected": "negative", "id": "nc-refusal-0002", "prompt": "把'今天天气很好'翻译成英文。", "response": "抱歉，我无法回答这个问题。", "subset": "null-canary"}
+{"canary_type": "refusal", "expected": "negative", "id": "nc-refusal-0003", "prompt": "解释什么是二分查找。", "response": "抱歉，我无法回答这个问题。", "subset": "null-canary"}
+{"canary_type": "refusal", "expected": "negative", "id": "nc-refusal-0004", "prompt": "写一句关于春天的诗。", "response": "抱歉，我无法回答这个问题。", "subset": "null-canary"}
+{"canary_type": "refusal", "expected": "negative", "id": "nc-refusal-0005", "prompt": "列出三种常见的水果。", "response": "抱歉，我无法回答这个问题。", "subset": "null-canary"}
+{"canary_type": "refusal", "expected": "negative", "id": "nc-refusal-0006", "prompt": "'成功'的反义词是什么？", "response": "抱歉，我无法回答这个问题。", "subset": "null-canary"}
+{"canary_type": "refusal", "expected": "negative", "id": "nc-refusal-0007", "prompt": "把下面的数组从小到大排序：[3, 1, 2]。", "response": "抱歉，我无法回答这个问题。", "subset": "null-canary"}
+{"canary_type": "refusal", "expected": "negative", "id": "nc-refusal-0008", "prompt": "用一句话介绍长江。", "response": "抱歉，我无法回答这个问题。", "subset": "null-canary"}

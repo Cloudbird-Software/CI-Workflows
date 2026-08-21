@@ -1,0 +1,25 @@
+schema: verifier-exam/policy/v1
+# 入职考试门阈值真源（W5-C3 .github#226 / ADR-0072；宪法 §4C）。
+# 语义：任一分项 value < min 即拒上岗（run_exam.py exit 1）——阈值只在此处定义，
+# 判定消费本文件而非硬编码（同 dep-supply-chain policy 模式）。
+# 金丝雀是硬门（1.00）：null-model 攻击实证（arXiv:2410.07137）表明空响应/
+# 模板复读对 LLM judge 有系统性讨好效应——零容忍。
+exam_version_prefix: v      # 考试集版本目录前缀（manifest.version 为语义版本）
+prompt_version: v1         # prompts/ 下的 prompt 版本目录（prompt_hash 的输入）
+sections:
+  rewardbench2_generative:
+    metric: accuracy        # 成对偏好命中黄金标签比例
+    min: 0.70               # n=20 → ≥14 对（RewardBench2 生成式赛道量级）
+  llmbar_adversarial:
+    metric: accuracy
+    min: 0.60               # n=20 → ≥12 对（对抗子集更难，obvious+subtle 混合）
+  null_canary:
+    metric: negative_rate   # 金丝雀判负比例（AC-2：100% 判负）
+    min: 1.00               # n=24 → 24/24，一票否决
+  dual_order:
+    metric: agreement       # 同题两序（位置交换，MT-Bench 协议 arXiv:2306.05685）一致率
+    min: 0.90               # 宪法 §4C 门槛：≥0.90 才过（0.89 即拒）
+calibration:
+  min_joined_pairs: 30      # 校准对数低于此=校准不足（CI 取满宽 [0,1]→自动升人类）
+  owner_confirmation_rate_min: 0.20   # owner 确认率指标位（首版从 0 起累积）
+  pass_line_default: 0.80   # 出分及格线缺省（calibrate.py --pass-line 可覆写）

@@ -1,0 +1,242 @@
+name: verifier-exam
+# verifier 入职考试 CI + 校准集回流 + AI 可读性 rubric shadow
+# （W5-C3 .github#226 / ADR-0072；宪法 §4C 持证上岗、§5 先 shadow、§9#3 署名）
+#
+# 范式：LLM-as-a-Verifier（arXiv:2607.05391）；考试集=RewardBench2 生成式 +
+# LLMBar 对抗 + null-model 金丝雀（arXiv:2410.07137）+ MT-Bench 双序
+# （arXiv:2306.05685）；校准=敏感度/特异度（arXiv:2511.21140，ICML'26）。
+#
+# 纪律（ADR-0072）：
+#   - 任一考试分项不过=拒上岗（exit 1）——exam-replay 用回放判官演示门语义
+#     （gold 轨道须过 / positional 轨道须被拒），真实判官经 dispatch(api) 考试。
+#   - 无凭据=fixture 回放模式（本卡零真实 LLM 自测约定）；回放成绩
+#     judge_mode=replay，不可注册 agent-registry 执照（verifier-license.py 拒绝）。
+#   - 考试集钉版 pipeline/verifier-exam/examset/v1（freeze_hash 锚 exam-pin.yaml），
+#     每日 drift 检查对照 archive 正本——改集=新版本号（fail-closed）。
+#   - 校准回流/rubric shadow 只记录不阻断（AC-3/AC-4）。
+on:
+  pull_request:
+    paths: ["pipeline/verifier-exam/**", ".github/workflows/verifier-exam.yml"]
+  schedule:
+    - cron: "41 2 * * *"   # 每日 02:41 UTC（避开整点高峰与三治仓 03:00+ Scorecard 周扫）
+  workflow_dispatch:
+    inputs:
+      judge_mode:
+        { description: "replay=回放判官（零真实 LLM）；api=真实判官（需 org secret LLM_API_KEY）", type: string, default: "replay" }
+      model_alias:
+        { description: "api 模式的候选判官模型别名", type: string, default: "glm-4.5-air" }
+
+concurrency:
+  group: verifier-exam-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  selftest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+      - run: pip install pyyaml==6.0.3
+      - name: 单元自测（金丝雀全断言/双序边界/CI 下界/rubric 不阻断/存档键——零真实 LLM）
+        run: python3 -m unittest discover -s pipeline/verifier-exam/tests -v
+
+  exam-replay:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: selftest
+    outputs:
+      raw_pairwise_acc: ${{ steps.exam.outputs.raw_acc }}
+    env:
+      JUDGE_MODE: ${{ inputs.judge_mode || 'replay' }}   # zizmor：模板值经 env 间接引用
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+      - run: pip install pyyaml==6.0.3
+
+      # 考试（AC-1/AC-2）：replay=fixture 回放（无凭据缺省）；api=真实判官（计量走
+      # scripts/llm-call.sh）。凭据只在 api 步骤 env 暴露，PR 可改的考试脚本不接触 key。
+      - name: 入职考试（任一分项不过=exit 1 拒上岗）
+        id: exam
+        env:
+          LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
+          RUN_ID: ${{ github.run_id }}   # zizmor：模板值经 env 间接引用
+        run: |
+          set -euo pipefail
+          python3 pipeline/verifier-exam/run_exam.py \
+            --judge-config pipeline/verifier-exam/judge-configs/glm-4.5-air.json \
+            --judge-mode "$JUDGE_MODE" \
+            --out verifier-exam/results --run-id "$RUN_ID" > "$RUNNER_TEMP/exam.json"
+          # 校准回流的 raw score 锚点：本场考试成对准确率（真实判官上线后即其成绩）
+          acc=$(python3 - "$RUNNER_TEMP/exam.json" <<'PY'
+          import json, sys
+          d = json.load(open(sys.argv[1], encoding="utf-8"))
+          s = d["sections"]
+          print(round((s["rewardbench2_generative"]["value"] + s["llmbar_adversarial"]["value"]) / 2, 3))
+          PY
+          )
+          echo "raw_acc=$acc" >> "$GITHUB_OUTPUT"
+
+      - name: 拒上岗门语义演示（位置偏差判官必须被拒——双序一致率=0）
+        run: |
+          set -uo pipefail
+          python3 pipeline/verifier-exam/run_exam.py \
+            --judge-config pipeline/verifier-exam/judge-configs/glm-4.5-air.json \
+            --replay-fixture pipeline/verifier-exam/fixtures/judge-positional.json \
+            --out "$RUNNER_TEMP/rejected" --run-id gate-demo > /dev/null 2>&1
+          rc=$?
+          [ "$rc" -eq 1 ] || { echo "::error::门语义回归：位置偏差判官未被拒（rc=$rc）"; exit 1; }
+          echo "OK: positional 判官被拒（exit 1），拒上岗语义保持"
+
+      - name: 成绩存档断言（archive_key 完整性 + 金丝雀 100% 判负）
+        run: |
+          set -euo pipefail
+          f=$(ls verifier-exam/results/*.jsonl)
+          [ "$(wc -l < "$f")" -ge 1 ] || { echo "::error::成绩存档为空"; exit 1; }
+          python3 - "$f" <<'PY'
+          import json, sys
+          rec = json.loads(open(sys.argv[1], encoding="utf-8").read().strip().splitlines()[-1])
+          assert rec["archive_key"] == f'{rec["judge_id"]}@{rec["exam_version"]}@{rec["prompt_hash"][:12]}', rec["archive_key"]
+          assert rec["sections"]["null_canary"]["negative_rate"] == 1.0, "金丝雀未 100% 判负"
+          assert rec["sections"]["dual_order"]["agreement"] >= 0.90, "双序一致率 <0.90"
+          assert rec["frozen_exam_sha256"], "缺考试集冻结哈希"
+          print("archive_key =", rec["archive_key"], "| overall_pass =", rec["overall_pass"])
+          PY
+
+      - name: 上传成绩存档（judge_id@版本@prompt_hash 键——执照注册核验依据）
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: verifier-exam-results
+          path: verifier-exam/results/
+          retention-days: 90   # 执照注册核验+模型换代重考追溯窗口
+          if-no-files-found: warn
+
+  exam-drift:
+    # 每日冻结漂移检查（ADR-0072 决策 1）：archive 正本 vs 本仓钉版 pin——
+    # archive 被改动而版本号未升，在本仓 main 上红（改集=新版本号的执行点）。
+    if: github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: Cloudbird-Software/archive   # 公开仓（ADR-0020），默认 token 可读
+          ref: main
+          path: archive-upstream
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+      - run: pip install pyyaml==6.0.3
+      - name: freeze_hash 对账（fail-closed）
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json, sys
+          from pathlib import Path
+          import yaml
+          pin = yaml.safe_load(Path("pipeline/verifier-exam/exam-pin.yaml").read_text(encoding="utf-8"))["examset"]
+          m = json.loads((Path("archive-upstream") / pin["path"] / "manifest.json").read_text(encoding="utf-8"))
+          if m["freeze_hash"] != pin["freeze_hash"] or m["version"] != pin["version"]:
+              sys.exit(f"::error::考试集漂移：archive(v{m['version']} @{m['freeze_hash'][:12]}) "
+                       f"!= pin(v{pin['version']} @{pin['freeze_hash'][:12]})——"
+                       "改集=开新版本目录并同步 pin（ADR-0072 决策 1）")
+          print(f"OK freeze 对账一致：v{m['version']} @{m['freeze_hash'][:12]}")
+          PY
+
+  calibration:
+    # 校准集自动回流（AC-3）：owner merge/reject 动作→样本（零额外操作）+ 出分即校准。
+    # 只记录不阻断：needs_human 是升人类信号，非红灯（宪法 §4C"静默完成"）。
+    if: github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: exam-replay
+    permissions:
+      contents: read
+      pull-requests: read   # gh api 拉 PR 事件（owner 动作真源）
+    env:
+      RAW_ACC: ${{ needs.exam-replay.outputs.raw_pairwise_acc }}   # zizmor：经 env 间接引用
+      REPO_FULL: ${{ github.repository }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+      - run: pip install pyyaml==6.0.3
+      - name: 回流（merged/closed-with-review → 校准样本；fail-closed）
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          python3 pipeline/verifier-exam/calibrate.py collect \
+            --repo "$REPO_FULL" --out calibration/samples.jsonl
+      - name: 出分即校准（CI 下界<及格线→needs_human 信号，不阻断）
+        run: |
+          set -euo pipefail
+          python3 pipeline/verifier-exam/calibrate.py score \
+            --samples calibration/samples.jsonl --raw-score "${RAW_ACC:-0.0}" \
+            --out calibration/report.json
+      - name: 上传校准样本与报告
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: verifier-calibration
+          path: calibration/
+          retention-days: 90
+          if-no-files-found: warn
+      - name: 摘要（owner 确认率指标位可见）
+        if: always()
+        run: |
+          {
+            echo "## verifier 校准回流（ADR-0072 AC-3——只记录不阻断）"
+            echo '```json'
+            cat calibration/report.json 2>/dev/null || echo '{"status": "collect 失败（见步骤日志，fail-closed）"}'
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  rubric-shadow:
+    # AI 可读性 rubric shadow（AC-4）：五维出分仅记录不阻断；标注负债显式申报。
+    # 回放打分（零真实 LLM）；真实判官打分待考试持证后经 --judge-config 接入。
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: selftest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+      - run: pip install pyyaml==6.0.3
+      - name: 五维打分（shadow——不阻断）
+        env:
+          RUN_ID: ${{ github.run_id }}   # zizmor：模板值经 env 间接引用
+        run: |
+          set -euo pipefail
+          python3 pipeline/verifier-exam/rubric_shadow.py --repo-root . \
+            --out rubric-shadow/records.jsonl --run-id "$RUN_ID"
+      - name: 上传 shadow 记录
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: verifier-rubric-shadow
+          path: rubric-shadow/
+          retention-days: 90
+          if-no-files-found: warn

@@ -1,0 +1,6 @@
+{
+ "fixture_id": "judge-positional",
+ "note": "位置偏差判官回放轨道：无论内容恒选呈现位第一（MT-Bench 位置交换协议的靶子）。canonical 双序一致率=0.0 <0.90 → 拒上岗（exit 1）。金丝雀侧全判负（本 fixture 只考点=位置偏差）。",
+ "pairwise_mode": "first",
+ "canary_mode": "negative"
+}
