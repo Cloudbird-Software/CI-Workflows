@@ -1,0 +1,106 @@
+name: spec-entropy
+# 语义熵分歧度量红队工具（W4-C1 .github#220 / ADR-0066；宪法 §4E 生产者红队）
+# ——k=5 跨族冷上下文独立重派生 → 双向蕴含聚簇（Semantic Entropy，Nature 2024）
+# → 底噪扣减判定（跨族簇数−B>=2 才归因）→ [归因] LM vs LM 交叉质询定位条款坐标。
+# 铁律：判定=簇数/熵，绝不退化为投票（ADR-0066）。
+#
+# 触发形态（ADR-0066 决策 6）：workflow_dispatch 按需（spec PR 阶段+波次收口，
+# 红队工具非全量 PR 门）；无 cron——5 路派生成本高，不养常驻负载。
+# live 模式前置：LLM_API_KEY + 5 族路由齐备（policy.py FAMILY_ROUTES，一期仅
+# glm 族可达 → live 暂为 N/A 诚实降级，与 ocr-shadow 同纪律：不伪装跑过）；
+# 回放模式（--replay-dir）零凭据零 LLM 全链路可跑（默认演示=AC fixture）。
+on:
+  workflow_dispatch:
+    inputs:
+      spec_path:
+        { description: "spec 文件路径（仓内，含条款 ID）", type: string,
+          default: "pipeline/entropy/tests/fixtures/spec-ambiguous.md" }
+      replay_dir:
+        { description: "回放目录（空=live；默认演示=fixture 回放）", type: string,
+          default: "pipeline/entropy/tests/fixtures/replay-ambiguous" }
+      entailment_engine:
+        { description: "双向蕴含引擎（CI 形态=heuristic；deberta-mnli 需 NLI 服务）",
+          type: choice, default: "heuristic", options: [heuristic, deberta-mnli] }
+
+concurrency:
+  group: spec-entropy   # 红队度量串行（同 spec 重复派生无意义且费配额）
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  entropy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30   # 5 路派生+NLI+质询上限预算；超时熔断不挂死 runner
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Harden Runner（egress 白名单——github + provider，INV-06）
+        uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c # v2.21.0
+        with:
+          egress-policy: block
+          allowed-endpoints:
+            github.com:443
+            api.github.com:443
+            objects.githubusercontent.com:443
+            open.bigmodel.cn:443
+
+      # 判定物有效性（宪法 §4E）：先跑 fixture 自测（零真实 LLM——回放文件经
+      # 计量 wrapper 落账）——工具自身不可信则度量结果不可信
+      - name: fixture 自测（AC-1~AC-4，零真实 LLM）
+        run: python3 -m unittest discover -s pipeline/entropy/tests -v
+
+      # LLM_API_KEY 只进本步骤 env（zizmor secret-exposure 最小暴露面）；
+      # 模板输入经 env 间接引用
+      - name: 运行分歧度量（回放 / live；无凭据或路由不全诚实降级 N/A）
+        id: run
+        env:
+          SPEC_PATH: ${{ inputs.spec_path }}
+          REPLAY_DIR: ${{ inputs.replay_dir }}
+          ENGINE: ${{ inputs.entailment_engine }}
+          LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
+        run: |
+          set -euo pipefail
+          OUT="$RUNNER_TEMP/entropy-out"
+          if [ -n "$REPLAY_DIR" ]; then
+            echo "模式=replay（$REPLAY_DIR）"
+            GATE_METERING_DIR="$RUNNER_TEMP/metering" \
+              bash pipeline/entropy/run.sh --spec "$SPEC_PATH" --out-dir "$OUT" \
+                --replay-dir "$REPLAY_DIR" --entailment-engine "$ENGINE"
+          elif [ -z "${LLM_API_KEY:-}" ]; then
+            echo "N/A（无凭据，跳过）——org secret LLM_API_KEY 不可用；回放演示用 replay_dir 输入"
+            echo "ran=false" >> "$GITHUB_OUTPUT"; exit 0
+          elif ! python3 -c 'import sys; sys.path.insert(0, "pipeline/entropy"); import policy; sys.exit(0 if policy.live_routes_ready()[0] else 1)'; then
+            echo "N/A（live 跨族路由不全）——一期 provider 单族（ADR-0048），FAMILY_ROUTES 仅 glm 可达；多 provider 接入后自动放开（policy.py）"
+            echo "ran=false" >> "$GITHUB_OUTPUT"; exit 0
+          else
+            echo "模式=live（5 族路由齐备）"
+            GATE_METERING_DIR="$RUNNER_TEMP/metering" \
+              bash pipeline/entropy/run.sh --spec "$SPEC_PATH" --out-dir "$OUT" \
+                --entailment-engine "$ENGINE"
+          fi
+          echo "ran=true" >> "$GITHUB_OUTPUT"
+
+      - name: 上传度量报告 artifact（报告 schema=entropy-report/v1，ADR-0066 决策 6）
+        if: always() && steps.run.outputs.ran == 'true'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: entropy-report-${{ github.run_id }}
+          path: ${{ runner.temp }}/entropy-out/
+          retention-days: 90   # 红队报告窗（归档入 archive 由波次收口执行）
+          if-no-files-found: warn
+
+      - name: 判定摘要入 run 摘要（归因/热点/轮次——红队可读出口）
+        if: always() && steps.run.outputs.ran == 'true'
+        run: |
+          {
+            echo "## spec-entropy（红队工具——归因与否是结论，非检查成败）"
+            echo '```json'
+            python3 -c 'import json,sys,os; p=os.path.join(os.environ["RUNNER_TEMP"],"entropy-out","report.json"); d=json.load(open(p)); print(json.dumps({"attributed":d["verdict"]["attributed"],"hotspots":d["verdict"]["hotspots"],"noise_b":d["verdict"]["noise_b"],"rule":d["verdict"]["rule"],"rounds_used":d["cross_examination"]["rounds_used"],"k":d["k"],"families":[l["family"] for l in d["lanes"]]},ensure_ascii=False,indent=2))' || echo '{"error": "report.json 未生成（前置步骤失败）"}'
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"

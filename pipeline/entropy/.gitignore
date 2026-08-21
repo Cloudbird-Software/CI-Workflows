@@ -1,0 +1,2 @@
+# 本地跑 unittest 会产 __pycache__（CI 无此问题）——防误提交
+__pycache__/
