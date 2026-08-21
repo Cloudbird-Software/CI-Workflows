@@ -40,8 +40,13 @@ jobs:
             api.github.com:443
             objects.githubusercontent.com:443
             open.bigmodel.cn:443
+      # 可复用 workflow 运行在【调用方】上下文——checkout 默认拉调用方仓！
+      # 必须显式拉本仓（CI-Workflows）且 ref=github.action_ref（调用方钉定的
+      # SHA，自引用钉点——被调方永远执行自己被钉定的版本，#143 实测教训）
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          repository: Cloudbird-Software/CI-Workflows
+          ref: ${{ github.action_ref }}
           persist-credentials: false
       # gh-app-token.sh 属 .github 仓（ADR-0044）——治理仓 main 受 PR+gate 保护；
       # path: gov 防止与本仓 checkout 冲突
