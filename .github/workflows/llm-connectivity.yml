@@ -41,7 +41,7 @@ jobs:
         run: |
           printf 'connectivity probe' > /tmp/p.txt
           reply=$(bash scripts/llm-call.sh --model "$LLM_PROBE_MODEL" \
-            --prompt-file /tmp/p.txt --max-tokens 1 --temperature 0 --tag connectivity)
+            --prompt-file /tmp/p.txt --max-tokens 16 --temperature 0 --thinking disabled --tag connectivity)
           echo "reply(≤200B): ${reply:0:200}"
       - name: usage 记录入 run 摘要（BEH-09 留痕）
         run: |
