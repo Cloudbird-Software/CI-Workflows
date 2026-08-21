@@ -1,0 +1,9 @@
+{
+  "schema": "holdout-unseal-config/1",
+  "pass_rate_gap_threshold_pct": 5.0,
+  "entry_kind": "sealed-test-set",
+  "record_schema": "holdout-unseal-record/1",
+  "detail_schema": "holdout-unseal-detail/1",
+  "issue_repo": "Cloudbird-Software/holdout",
+  "note": "阈值来源 ADR-0068 决策 6（宪法 §14 阈值族）；修订须引用新 ADR"
+}
