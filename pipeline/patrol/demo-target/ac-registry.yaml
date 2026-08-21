@@ -1,0 +1,25 @@
+schema: patrol-ac-registry/v1
+# AC 注册表（源 a 素材，W3-C2 .github#219 / ADR-0065）：卡/spec 的 AC 文本 →
+# 机器可判定探针。patrol 逐条对账「声明 vs 实际行为」。生产接入=各仓
+# quality/ 的 AC UID 落到本形态（C1 变更）。
+entries:
+  - ac_uid: AC-DEM-1
+    card_ref: demo#1
+    text: 除零必须返回错误包络 {ok:false,error:...}，不得使进程崩溃退出
+    probe: {op: div, a: 1.0, b: 0.0}
+    oracle: {class: crash}
+  - ac_uid: AC-DEM-2
+    card_ref: demo#1
+    text: fetch 对不存在/异常资源必须返回 4xx 或 2xx JSON 包络，不得 5xx
+    probe: {op: fetch, id: boom}
+    oracle: {class: http-5xx}
+  - ac_uid: AC-DEM-3
+    card_ref: demo#2
+    text: report 响应 data 必含 summary 与 rows 字段（对外 schema 契约）
+    probe: {op: report, include_debug: true}
+    oracle: {class: schema, required: [summary, rows]}
+  - ac_uid: AC-DEM-4
+    card_ref: demo#2
+    text: search 常规查询延迟预算 200ms（p100 不得超）
+    probe: {op: search, q: zzz-full-scan}
+    oracle: {class: perf-budget, budget_ms: 200}

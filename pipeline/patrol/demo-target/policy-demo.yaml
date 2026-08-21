@@ -1,0 +1,40 @@
+schema: patrol-policy/v1
+# 演习/自测政策（W3-C2 .github#219，ADR-0065）——生产真源是 .github 仓
+# governance/policy/patrol.yaml（阈值改动=C1 变更须引用 ADR）。本文件仅在
+# demo 靶场（pipeline/patrol/demo-target/）上演练全链路，路径相对 CI-Workflows
+# 仓根（run --target-base 指定）。
+version: 1
+
+targets:
+  - repo: Cloudbird-Software/CI-Workflows
+    mode: demo-probe            # 只对仓内 demo 靶场巡逻——blastRadius 可控
+    service: pipeline/patrol/demo-target/service.py
+    ac_registry: pipeline/patrol/demo-target/ac-registry.yaml
+    escapes: pipeline/patrol/demo-target/escapes.yaml
+
+rate_limit:
+  max_issues_per_repo_per_hour: 6   # 演示频控：靶场 8 个 finding，首小时开 6 缓 2
+  max_issues_per_repo_per_day: 12
+
+observation:
+  escalate_after_independent: 2     # 宪法 §3 钉死：两次独立（不同 run 且不同 seed）
+
+yield:
+  snr_threshold: 0.05               # 信噪比（真 bug/开单数）< 5% → 自动降频
+  snr_window_issues: 20
+  downshift_daily_issue_cap: 1      # 降频态每仓每日开单上限（收敛而非停巡）
+
+sources:
+  escape:
+    variants_per_pattern: 4         # 每 pattern 采样变体数（seed 驱动确定性）
+  metamorphic:
+    pairs_per_run: 6
+  llm:
+    enabled: true                   # 无凭据时该半源诚实降级（skipped 计数，不伪装）
+    model: glm-4.5-air
+
+issue_mode: draft                   # shadow 起步：草稿 artifact，不开线上单
+
+permissions:
+  allowed: [read-run, open-issue]   # 权限铁律（ADR-0065 决策 5）
+  forbidden: [push, pr-write, label-write, code-write]

@@ -1,0 +1,22 @@
+schema: patrol-escapes/v1
+# 历史逃逸模式库（源 b 素材，W3-C2 .github#219 / ADR-0065）：drift/红队/演习
+# 沉淀的逃逸模式 → 参数化攻击语法。patrol 每轮按 seed 确定性采样变体再攻击
+# （修复过的缺陷获得系统性回归攻击面，而非只靠单点回归测试）。
+patterns:
+  - pattern_id: DIV-ZERO
+    history_ref: demo-history#12 除零未包络（曾逃逸——已修复，防回归再攻击）
+    grammar:
+      op: div
+      a: 1.0
+      b_variants: [0, 0.0, -0.0, "0"]
+    oracle: {class: crash}
+  - pattern_id: TRANSFER-CONSERVATION
+    history_ref: demo-history#15 大额转账余额守恒被隐性费用破坏（曾逃逸）
+    grammar:
+      op: transfer
+      from_before: 2000
+      to_before: 100
+      amount_variants: [999.99, 1000, 1000.01, 1000000]
+    oracle:
+      class: invariant
+      expr: from_after + to_after == from_before + to_before
