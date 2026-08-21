@@ -1,0 +1,183 @@
+name: trust-shadow
+# 信任门 shadow 管线（W5-C2 .github#225 / ADR-0071；宪法 §5 信任演进）
+#
+# 硬谓词白名单 + shadow 决策记录：PR 到达 → 确定性判定（全关卡绿 ∧ 证据清单
+# 齐全 ∧ 已解锁域；缺证据=拒绝不是中性）→ 记录"本应合并/本应拒绝"但**不执行**
+# （executed=false；与 owner 实际裁决的比对走 reconcile，数据入 archive JSONL）。
+#
+# 纪律（ADR-0071 决策 2 + ocr-shadow 同款）：
+#   - 不注册 required check、不写 PR review state、不调用合并 API——本 workflow
+#     只落 artifact 记录；域解锁（连续 ≥50 例一致+零逃逸+陷阱 ≥10%）由
+#     unlock-evaluate 基于比对数据判定，新状态经 C1 PR 落盘 unlock-state.yaml。
+#   - 判定零 LLM 纯确定性（trust_gate.py）；证据真源 = PR head 的
+#     .trust/evidence.json（上游关卡产出）+ Checks API 关卡结论；manifest 缺席
+#     = 缺证据 = 拒绝（不伪造空证据放行）。
+#   - 熔断联动（ADR-0040）：AUTO_MERGE_DISABLED 置位或不可确认 → 判定直接拒绝
+#     （circuit-breaker-tripped）——只准降级为人签，不准降级为少验。
+#   - 域守卫：触及 .github/workflows/**、pipeline/**、policy/** 的 PR 域强制归
+#     ci-workflows（排除域，永远人签——宪法 §5 明确排除项）。
+#   - 陷阱标记不经本 workflow 注入（PR 作者可控的 trap 标记会稀释/污染解锁判据
+#     ——fail-closed 方向拒绝该通道）；陷阱由周演习（ADR-0069）在 reconcile 侧
+#     从种子缺陷台账标注。
+# workflow_call：各仓以 reusable 形式挂接（同 ocr-shadow 模式）。
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+  workflow_call: {}
+
+concurrency:
+  group: trust-shadow-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  shadow:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10   # shadow 非阻断（未注册 required），超时只损失观察样本
+    permissions:
+      contents: read
+      pull-requests: read   # PR 文件清单（域分类守卫）
+      checks: read          # 关卡结论（check-runs API）
+    steps:
+      - name: Harden Runner（egress 白名单——仅 github，INV-06）
+        uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c # v2.21.0
+        with:
+          egress-policy: block
+          allowed-endpoints:
+            github.com:443
+            api.github.com:443
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: 自测试（零网络零 LLM——fixture 全断言，执法前先证明自己没坏）
+        run: python3 -m unittest discover -s pipeline/trust-gate/tests -v
+
+      # 熔断前置（ADR-0040 无人值守护栏）：vars 上下文（org 变量 visibility=all）
+      # 主读 + API 复核；两路均无明确结论时 fail-closed 记 tripped=true（不可确认
+      # ≠未置位——shadow 无合并权，宁可多记拒绝不记放行）。
+      - name: 熔断前置检查（AUTO_MERGE_DISABLED——置位即拒绝，ADR-0040 联动）
+        env:
+          CB_VAR: ${{ vars.AUTO_MERGE_DISABLED }}   # zizmor：模板值经 env 间接引用
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          CB_API="$(gh api "orgs/${GITHUB_REPOSITORY_OWNER}/actions/variables/AUTO_MERGE_DISABLED" --jq .value 2>&1 || true)"
+          if [[ "$CB_VAR" == "true" || ( "$CB_API" == *"true"* && "$CB_API" != *"Not Found"* ) ]]; then
+            echo "tripped=true" >> "$GITHUB_OUTPUT"; echo "tripped" > "$RUNNER_TEMP/breaker.txt"
+            echo "熔断置位（$CB_VAR / api）——判定将直接拒绝"
+          elif [[ "$CB_VAR" == "false" || "$CB_API" == "false" ]]; then
+            echo "tripped=false" >> "$GITHUB_OUTPUT"; echo "false" > "$RUNNER_TEMP/breaker.txt"
+          elif grep -q "Not Found" <<<"$CB_API" || [[ -z "$CB_VAR$CB_API" ]]; then
+            # org 变量尚未创建属正常初始态（ADR-0040：404=未置位）
+            echo "tripped=false" >> "$GITHUB_OUTPUT"; echo "false" > "$RUNNER_TEMP/breaker.txt"
+          else
+            echo "::warning::熔断状态不可确认（var='$CB_VAR' api='$(head -c 100 <<<"$CB_API")'）——fail-closed 记 tripped=true"
+            echo "tripped=true" >> "$GITHUB_OUTPUT"; echo "tripped" > "$RUNNER_TEMP/breaker.txt"
+          fi
+
+      - name: 组装证据 bundle（checks + evidence manifest + 域守卫）
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}        # zizmor：模板值经 env 间接引用
+          PR_NUM: ${{ github.event.pull_request.number }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          # 1) 关卡结论：head sha 的 check-runs（同名取最新；API 失败=步骤红，
+          #    不把 infra 噪音写进 shadow 数据——fail-closed）
+          gh api "repos/$REPO/commits/$HEAD_SHA/check-runs?per_page=100" \
+            --jq '[.check_runs[] | [.name, .conclusion]]' > "$RUNNER_TEMP/raw-checks.json"
+          # 2) 证据 manifest：PR head 的 .trust/evidence.json（404=缺证据=拒绝）
+          if gh api "repos/$REPO/contents/.trust/evidence.json?ref=$HEAD_SHA" \
+               --jq .content 2>/dev/null | base64 -d > "$RUNNER_TEMP/manifest.json"; then
+            python3 -c 'import json,sys; json.load(open(sys.argv[1],encoding="utf-8"))' \
+              "$RUNNER_TEMP/manifest.json" || { echo "manifest 非法 JSON——fail-closed"; exit 2; }
+          else
+            echo '{"domain":"unknown","evidence":{}}' > "$RUNNER_TEMP/manifest.json"
+            echo "evidence manifest 缺席（.trust/evidence.json@head）——缺证据=拒绝"
+          fi
+          # 3) 域守卫：触及治理敏感路径 → 强制排除域 ci-workflows（永远人签）。
+          #    全分页拉文件清单（截断的清单无法支撑域分类断言——fail-closed 不猜）
+          PAGE=1
+          : > "$RUNNER_TEMP/files.txt"
+          while :; do
+            JSON=$(gh api "repos/$REPO/pulls/$PR_NUM/files?per_page=100&page=$PAGE")
+            jq -r '.[].filename' <<<"$JSON" >> "$RUNNER_TEMP/files.txt"
+            [ "$(jq 'length' <<<"$JSON")" -lt 100 ] && break
+            PAGE=$((PAGE+1))
+          done
+          # 4) bundle 组装（经文件交接，不内联 JSON——防引号注入破坏结构）
+          python3 - "$RUNNER_TEMP" <<'PY'
+          import json, os, sys
+          tmp = sys.argv[1]
+          checks = {}
+          for name, conclusion in json.load(open(f"{tmp}/raw-checks.json", encoding="utf-8")):
+              if name is not None:   # 同名后写覆盖前写（check-runs 顺序=最新在后）
+                  checks[name] = conclusion or "pending"
+          manifest = json.load(open(f"{tmp}/manifest.json", encoding="utf-8"))
+          domain = manifest.get("domain", "unknown") if isinstance(manifest, dict) else "unknown"
+          evidence = manifest.get("evidence", {}) if isinstance(manifest, dict) else {}
+          files = open(f"{tmp}/files.txt", encoding="utf-8").read().splitlines()
+          if any(f.startswith((".github/workflows/", "pipeline/", "policy/"))
+                 or f == "zizmor.yml" for f in files):
+              domain = "ci-workflows"   # 排除域：永远人签（宪法 §5 明确排除）
+          breaker = open(f"{tmp}/breaker.txt", encoding="utf-8").read().strip()
+          bundle = {
+              "repo": os.environ["REPO"], "pr": int(os.environ["PR_NUM"]),
+              "head_sha": os.environ["HEAD_SHA"], "domain": domain,
+              "checks": checks, "evidence": evidence,
+              "breaker_tripped": breaker == "tripped",
+          }
+          json.dump(bundle, open(f"{tmp}/bundle.json", "w", encoding="utf-8"), ensure_ascii=False)
+          print(f"bundle: domain={domain} checks={len(checks)} evidence_keys={len(evidence)} breaker={breaker}")
+          PY
+
+      - name: 硬谓词判定（零 LLM；exit 1=拒绝形态——shadow 只记录不阻断）
+        run: |
+          set -uo pipefail
+          set +e
+          python3 pipeline/trust-gate/trust_gate.py adjudicate \
+            --bundle "$RUNNER_TEMP/bundle.json" --out "$RUNNER_TEMP/decision.json"
+          RC=$?
+          set -e
+          if [ "$RC" -eq 2 ]; then
+            echo "::error::判定 infra 失败（策略表/bundle 非法）——fail-closed，不产 shadow 记录"; exit 2
+          fi
+          echo "判定 exit=$RC（0=放行形态 1=拒绝形态；shadow 不执行）"
+          jq -r '"decision=\(.decision) reason=\(.reason) missing=\(.missing_predicates | length)"' "$RUNNER_TEMP/decision.json"
+
+      - name: shadow 记录 → JSONL（AC-2 数据源：trust-shadow/<date>.jsonl）
+        env:
+          REPO: ${{ github.repository }}     # zizmor：模板值经 env 间接引用
+          PR: ${{ github.event.pull_request.number }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          RUN_ID: ${{ github.run_id }}
+          EVENT: ${{ github.event_name }}
+        run: |
+          python3 pipeline/trust-gate/trust_gate.py shadow-record \
+            --decision "$RUNNER_TEMP/decision.json" --out-dir trust-shadow \
+            --repo "$REPO" --pr "$PR" --head-sha "$HEAD_SHA" \
+            --run-id "$RUN_ID" --event "$EVENT"
+          find trust-shadow -name '*.jsonl' -exec wc -l {} +
+
+      - name: 上传 shadow 记录 artifact（reconcile/unlock-evaluate 周期消费）
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: trust-shadow-${{ github.run_id }}
+          path: trust-shadow/
+          retention-days: 90   # 观察窗+解锁判据（≥50 例）累积所需
+          if-no-files-found: warn   # 前置步骤失败时保持根因可见（job 已红）
+
+      - name: 判定摘要入 run 摘要
+        if: always()
+        run: |
+          {
+            echo "## trust-shadow（硬谓词判定，纯记录不执行——ADR-0071）"
+            echo '```json'
+            cat "$RUNNER_TEMP/decision.json" 2>/dev/null || echo '{"error": "decision 未生成（前置步骤失败）"}'
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"

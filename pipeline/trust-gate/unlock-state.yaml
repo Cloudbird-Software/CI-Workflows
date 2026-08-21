@@ -1,0 +1,18 @@
+schema: trust-gate-domains/v1
+# ============================================================================
+# unlock-state.yaml —— 域解锁状态（ADR-0071 决策 3；回滚=已解锁域一键回锁，
+# 域状态是策略表条目——改本文件走 C1 PR 评审，workflow 运行期只读不写）
+# 初始（W5-C2 .github#225，2026-08-22）：三域全部 locked —— shadow 期起点，
+# 任何域解锁都须由 trust_gate.py unlock-evaluate 基于连续 ≥50 例一致+零逃逸+
+# 陷阱占比 ≥10% 的 reconcile 记录产出新状态，经 C1 PR 落盘（人签门）。
+# 语义: locked = 该域 PR 只记 shadow 决策（would-merge/would-reject）不执行；
+#       unlocked = 该域 PR 谓词全绿时判 auto-merge（另受 5% 抽审标记）。
+# ============================================================================
+updated: "2026-08-22"
+domains:
+  docs-only:
+    status: locked
+  test-only:
+    status: locked
+  failing-repro-fix:
+    status: locked
