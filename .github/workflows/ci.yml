@@ -149,9 +149,27 @@ jobs:
       - name: 语义熵 fixture 自测（AC-1~AC-4）
         run: python3 -m unittest discover -s pipeline/entropy/tests -v
 
+  bugflow-selftest:
+    # bug 流水线自测（W3-C1 .github#218 / ADR-0064，宪法 §4E 验证器之验证）：
+    # 三值判定（reproduced/cannot-reproduce/inconclusive→重试→needs-human）、
+    # 哨兵自证 fail-closed（基线不绿/哨兵不红/日志缺失=拒绝判定）、同指纹去重
+    # 幂等、env-gate 不匹配≠证伪、周抽样确定性——零真实 LLM、零网络、零写库。
+    # run-tests.sh 同时是 bug-reproduce.yml 每次判定的基线自证资产（执法前
+    # 先证明自己没坏）。
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: bugflow 自测 T1-T10
+        run: bash pipeline/bugflow/tests/run-tests.sh
+
   gate:
     if: always()
-    needs: [hygiene, test-integrity-selftest, metering-selftest, adversary-selftest, entropy-selftest]
+    needs: [hygiene, test-integrity-selftest, metering-selftest, adversary-selftest, entropy-selftest, bugflow-selftest]
     runs-on: ubuntu-latest
     timeout-minutes: 5    # testing.yaml "gate<5min" 原则的硬上限
     permissions:
