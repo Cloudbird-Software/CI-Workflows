@@ -1,0 +1,37 @@
+schema: ocr-shadow-rules/v1
+# OCR shadow 后处理规则表（ADR-0063 决策 3：建议必须命中声明规则集才保留）。
+# 语义：一条建议的 content 命中任一规则的 content_regex（re.search，大小写不敏感），
+# 且文件路径命中该规则 paths（fnmatch，缺省 ["*"]）→ 规则命中；否则丢弃并计 no-rule-hit。
+# 规则集 = 组织接受的"可疑模式类别"白名单——评审器输出游离于类别外的泛泛建议
+# 一律不计入 precision 分母（precision-first，宪法 §4C）。
+# 修改本表 = 后处理判定语义变更，须引用 ADR（C1 路径注意：本表在 pipeline/ 下，
+# 阈值语义修订随卡面 ADR-0063 走小 PR，不静默改）。
+rules:
+  - id: hardcoded-secret
+    description: 疑似硬编码凭据/密钥/token
+    content_regex:
+      - "(?i)\\b(password|passwd|secret|api[_-]?key|access[_-]?token|private[_-]?key)\\b[^\\n]{0,40}(=|:)[^\\n]{0,80}"
+      - "(?i)BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY"
+  - id: injection
+    description: 注入类风险（SQL/命令/路径拼接、eval、反序列化）
+    content_regex:
+      - "(?i)\\b(sql injection|command injection|path traversal|format string)\\b"
+      - "(?i)\\b(eval\\(|exec\\(|system\\(|popen\\(|os\\.system|subprocess[^\\n]{0,40}shell\\s*=\\s*True)\\b"
+      - "(?i)(SELECT|INSERT|UPDATE|DELETE)[^\\n]{0,60}(FROM|INTO|SET)[^\\n]{0,120}(\\+|%s\\s*\\{|f\"|f')"
+      - "(?i)\\b(pickle\\.loads?|yaml\\.load\\(\\s*[^)]*\\)\\s*(?!.*Loader)|unserialize|deserializ)\\w*"
+  - id: concurrency
+    description: 并发缺陷（数据竞争/无锁共享/死锁风险）
+    content_regex:
+      - "(?i)\\b(race condition|data race|deadlock|concurrent (map |write|access)|thread[- ]unsafe|not thread[- ]safe|mutex|rwlock|atomic)\\b"
+  - id: resource-leak
+    description: 资源泄漏（文件/连接/goroutine 未关闭）
+    content_regex:
+      - "(?i)\\b(resource leak|file handle leak|connection leak|goroutine leak|unclosed (file|connection|reader|writer|response body)|missing (close|defer|finally))\\b"
+  - id: error-handling
+    description: 错误处理缺陷（吞错/空 catch/未检查返回）
+    content_regex:
+      - "(?i)\\b(swallow(s|ed|ing)? (the )?error|ignored error|unchecked (error|return)|empty (catch|except)|bare except|panic[^\\n]{0,30}recover)\\b"
+  - id: null-boundary
+    description: 空值/越界/除零类边界缺陷
+    content_regex:
+      - "(?i)\\b(nil (pointer )?dereference|null pointer|index out of range|off[- ]by[- ]one|divide by zero|division by zero|buffer overflow|out[- ]of[- ]bounds)\\b"
