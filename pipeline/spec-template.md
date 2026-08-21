@@ -9,7 +9,7 @@
    - taskId：IR 的任务标识（从 IR 数据的标题/编号提取，形如 IR-XXXX）
    - specVersion: 1
    - title：一句话标题
-   - irRef：IR issue 引用（形如 "Cloudbird-Software/<repo>#<n>"，从 IR 数据提取）
+   - irRef：IR issue 引用（形如 "Cloudbird-Software/<repo>#<n>"，从 IR 数据提取；本字段与 taskId 会由流水线以事件真值复核并覆写——尽力填写即可，不要照抄本行示例）
    - acceptanceCriteria：列表，每项含 id（AC-1 起递增）、given、when、then
      （Given-When-Then 三段俱全、可观察判定），每条验收必须能从 GitHub 上的
      事实（issue/PR/CI run/仓库内容）机检或一目了然地人工核验

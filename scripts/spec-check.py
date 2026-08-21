@@ -45,6 +45,8 @@ def fail(msgs):
 
 def main():
     fix_out = None
+    task_id = None
+    ir_ref = None
     rest = []
     argv = sys.argv[1:]
     i = 0
@@ -52,12 +54,20 @@ def main():
         if argv[i] == "--fix" and i + 1 < len(argv):
             fix_out = argv[i + 1]
             i += 2
+        elif argv[i] == "--task-id" and i + 1 < len(argv):
+            # 机器真值（事件派生，如 "IR-0003"）——LLM 对机器已知字段零信任
+            #（.github#162 实测：irRef 被照抄模板占位符 "Cloudbird-Software/<repo>#3"）
+            task_id = argv[i + 1]
+            i += 2
+        elif argv[i] == "--ir-ref" and i + 1 < len(argv):
+            ir_ref = argv[i + 1]
+            i += 2
         else:
             rest.append(argv[i])
             i += 1
     path = rest[0] if rest else ""
     if not path:
-        print("用法: spec-check.py <spec.md>", file=sys.stderr)
+        print("用法: spec-check.py <spec.md> [--fix <out>] [--task-id <IR-XXXX>] [--ir-ref <owner/repo#n>]", file=sys.stderr)
         sys.exit(2)
     text = open(path, encoding="utf-8").read()
 
@@ -161,8 +171,33 @@ def main():
 
     if errs:
         fail(errs)
+
+    # 6. 机器真值复核/覆写（.github#162 根因修复）：
+    #    - --fix 模式：taskId/irRef 以事件真值确定性覆写（LLM 产出的这两字段
+    #      仅为草稿占位，机器已知字段不采信模型——防模板占位符照抄/幻觉编号）
+    #    - 纯校验模式（无 --fix）：值不匹配即 REJECT（fail-closed）
+    if task_id is not None or ir_ref is not None:
+        import io
+        head = text[:4]
+        fm_text, sep, body = text[4:].partition("\n---")
+        fm = yaml.safe_load(fm_text)
+        if task_id is not None:
+            if fix_out:
+                fm["taskId"] = task_id
+            elif str(fm.get("taskId")) != task_id:
+                fail([f"taskId 不匹配: spec={fm.get('taskId')!r} 期望={task_id!r}（事件真值）"])
+        if ir_ref is not None:
+            if fix_out:
+                fm["irRef"] = ir_ref
+            elif str(fm.get("irRef")) != ir_ref:
+                fail([f"irRef 不匹配: spec={fm.get('irRef')!r} 期望={ir_ref!r}（事件真值）"])
+        if fix_out:
+            buf = io.StringIO()
+            yaml.dump(fm, buf, allow_unicode=True, sort_keys=False, default_flow_style=False)
+            text = head + buf.getvalue().rstrip("\n") + sep + body
     print(f"OK spec-check（g010 过渡版）: taskId={fm['taskId']} AC×{len(acs)} "
-          f"blastRadius×{len(fm['blastRadius'])} 结构/注入双扫通过")
+          f"blastRadius×{len(fm['blastRadius'])} 结构/注入双扫通过"
+          + ("；taskId/irRef 已按事件真值覆写" if (fix_out and (task_id or ir_ref)) else ""))
     if fix_out:
         # 归一化产物（剥围栏/补闭合 --- 后的形态）落盘，供 spec-pr.py 消费
         open(fix_out, "w", encoding="utf-8", newline="\n").write(text + "\n")
