@@ -44,7 +44,18 @@ def fail(msgs):
 
 
 def main():
-    path = sys.argv[1] if len(sys.argv) > 1 else ""
+    fix_out = None
+    rest = []
+    argv = sys.argv[1:]
+    i = 0
+    while i < len(argv):
+        if argv[i] == "--fix" and i + 1 < len(argv):
+            fix_out = argv[i + 1]
+            i += 2
+        else:
+            rest.append(argv[i])
+            i += 1
+    path = rest[0] if rest else ""
     if not path:
         print("用法: spec-check.py <spec.md>", file=sys.stderr)
         sys.exit(2)
@@ -59,14 +70,19 @@ def main():
         idx = text.find("\n---\n")
         if idx >= 0:
             text = text[idx + 1:]
+        else:
+            fail(["缺 YAML frontmatter（必须以 --- 开头）"])
 
-    if not text.startswith("---\n"):
-        fail(["缺 YAML frontmatter（必须以 --- 开头）"])
-    parts = text[4:].split("\n---", 1)
-    if len(parts) < 2:
-        fail(["frontmatter 未闭合（缺结束 ---）"])
+    # 模型常见缺陷（2026-08-21 实测两轮）：漏写 frontmatter 闭合的 ---。
+    # 确定性修复：无闭合 --- 时，以首个顶层 ## 节标题行为边界补上。
+    if "\n---" not in text[4:]:
+        m0 = re.search(r"\n## ", text[4:])
+        if m0:
+            text = text[:4 + m0.start()] + "\n---" + text[4 + m0.start():]
+        else:
+            fail(["frontmatter 未闭合（缺结束 ---，且无节标题可推断边界）"])
     try:
-        fm = yaml.safe_load(parts[0])
+        fm = yaml.safe_load(text[4:].split("\n---", 1)[0])
     except yaml.YAMLError as e:
         fail([f"frontmatter YAML 解析失败: {e}"])
     errs = []
@@ -99,8 +115,11 @@ def main():
             errs.append(f"AC id 重复: {ac.get('id')}")
         ids.add(ac.get("id"))
 
-    # 3. blastRadius 元素非空
-    if not all(isinstance(x, str) and x.strip() for x in fm["blastRadius"]):
+    # 3. blastRadius 元素非空（字符串或 {repo,path} 对象皆可）
+    ok_br = all((isinstance(x, str) and x.strip())
+                or (isinstance(x, dict) and x)
+                for x in fm["blastRadius"])
+    if not ok_br:
         errs.append("blastRadius 含空元素")
 
     # 4. 实现细节关键词
@@ -144,6 +163,10 @@ def main():
         fail(errs)
     print(f"OK spec-check（g010 过渡版）: taskId={fm['taskId']} AC×{len(acs)} "
           f"blastRadius×{len(fm['blastRadius'])} 结构/注入双扫通过")
+    if fix_out:
+        # 归一化产物（剥围栏/补闭合 --- 后的形态）落盘，供 spec-pr.py 消费
+        open(fix_out, "w", encoding="utf-8", newline="\n").write(text + "\n")
+        print(f"归一化 spec → {fix_out}")
 
 
 if __name__ == "__main__":

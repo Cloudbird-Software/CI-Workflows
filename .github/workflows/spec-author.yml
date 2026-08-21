@@ -124,7 +124,8 @@ jobs:
           TARGET_REPO: ${{ inputs.target_repo }}
           ISSUE_NUMBER: ${{ inputs.issue_number }}
         run: |
-          if ! python3 scripts/spec-check.py spec-draft.md; then
+          if ! python3 scripts/spec-check.py spec-draft.md --fix spec.md; then
+          echo "== 草稿头 600B（诊断）=="; head -c 600 spec-draft.md; echo; echo "== 草稿尾 300B =="; tail -c 300 spec-draft.md
             gh api "repos/$TARGET_REPO/issues/$ISSUE_NUMBER/comments" \
               -f body="spec-author 产出未过 g010 过渡校验（结构/注入），本次不产 PR。原因见 run 日志。**AC-12 生效中**。" >/dev/null
             exit 1
@@ -136,8 +137,8 @@ jobs:
           ISSUE_NUMBER: ${{ inputs.issue_number }}
           IR_REF: ${{ inputs.ir_ref }}
         run: |
-          TASKID=$(python3 -c "import re;t=open('spec-draft.md',encoding='utf-8').read();m=re.match(r'---\n(.+?)\n---',t,re.S);print(next((l.split(':',1)[1].strip().strip('\"\'') for l in m.group(1).splitlines() if l.startswith('taskId:')),''))")
-          python3 scripts/spec-pr.py --repo "$TARGET_REPO" --spec spec-draft.md \
+          TASKID=$(python3 -c "import re;t=open('spec.md',encoding='utf-8').read();m=re.match(r'---\n(.+?)\n---',t,re.S);print(next((l.split(':',1)[1].strip().strip('\"\'') for l in m.group(1).splitlines() if l.startswith('taskId:')),''))")
+          python3 scripts/spec-pr.py --repo "$TARGET_REPO" --spec spec.md \
             --branch "spec/${TASKID}-${ISSUE_NUMBER}" --ir-ref "$IR_REF" \
             --ir-issue "$ISSUE_NUMBER" --usage-file "$(cat usage-path.txt)" | tee pr-url.txt
       - name: usage 摘要回写 IR issue（BEH-09）

@@ -5,7 +5,7 @@
 
 ## 输出结构（严格遵守）
 
-1. YAML frontmatter（--- 包裹）：
+1. YAML frontmatter：以单独一行 `---` 开始、以单独一行 `---` 结束（两行都必须有，不可省略闭合行）：
    - taskId：IR 的任务标识（从 IR 数据的标题/编号提取，形如 IR-XXXX）
    - specVersion: 1
    - title：一句话标题
