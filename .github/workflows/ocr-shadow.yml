@@ -59,9 +59,12 @@ jobs:
       - name: 拉 PR diff（后处理判越界的真源）
         env:
           GH_TOKEN: ${{ github.token }}
-          PR_API: "repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}"   # zizmor：模板值经 env 间接引用
+          REPO: ${{ github.repository }}   # zizmor：模板值经 env 间接引用
+          PR_NUM: ${{ github.event.pull_request.number }}
         run: |
-          gh api "$PR_API" -H "Accept: application/vnd.diff" > "$RUNNER_TEMP/pr.diff"
+          # gh pr diff --patch（gh api + Accept: application/vnd.diff 实测被 API 拒 415——
+          # 平台要求 gh api 请求必须 accept application/json，改走 gh 原生命令）
+          gh pr diff "$PR_NUM" --repo "$REPO" --patch > "$RUNNER_TEMP/pr.diff"
           echo "pr.diff: $(wc -l < "$RUNNER_TEMP/pr.diff") 行"
 
       - name: 安装 OCR（vendored 钉版：v1.9.9+sha256 双锚定，ADR-0063 决策 1）
@@ -131,7 +134,7 @@ jobs:
           name: ocr-shadow-${{ github.run_id }}
           path: ocr-shadow/
           retention-days: 90   # 观察窗+时序累积所需；晋升评审留痕
-          if-no-files-found: error
+          if-no-files-found: warn   # 前置步骤失败时保持根因可见（job 已红），不为缺文件叠加噪音
 
       - name: 统计入 run 摘要（过滤率指标可见）
         if: always()
