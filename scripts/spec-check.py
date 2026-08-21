@@ -50,6 +50,16 @@ def main():
         sys.exit(2)
     text = open(path, encoding="utf-8").read()
 
+    # 预处理（模型常见偏差，2026-08-21 首跑实测）：
+    # a) 整体被 ```markdown 围栏包裹；b) frontmatter 前有说明文字行
+    text = text.strip()
+    text = re.sub(r"^```[a-zA-Z]*[^\n]*\n", "", text)
+    text = re.sub(r"\n?```\s*$", "", text).strip()
+    if not text.startswith("---\n"):
+        idx = text.find("\n---\n")
+        if idx >= 0:
+            text = text[idx + 1:]
+
     if not text.startswith("---\n"):
         fail(["缺 YAML frontmatter（必须以 --- 开头）"])
     parts = text[4:].split("\n---", 1)
@@ -99,19 +109,35 @@ def main():
             errs.append(f"含实现细节（{why}）——spec 只描述是什么/验收什么")
 
     # 5. 注入扫描（只扫 spec 正文语义——模式命中即报，宁枉勿纵；
-    #    例证引述豁免：命中段被引号（"…"/'…'/“…”)包裹视为对注入样例的
-    #    引用（如 IR-0001 AC-12 原文），不算注入条款）
+    #    两类合法引述豁免：(a) 紧包裹引号——命中段前后紧邻引号（对注入样例的
+    #    引用，如 IR-0001 AC-12 原文引号内的样例）；(b) 否定语境（前 8 字符含
+    #    否定词——『不含/禁止…豁免条款』类防线描述）。窗口式引号判定实测过宽
+    #    （frontmatter 的引号值落窗即误免）已弃用）
+    QL = '\u201c'
+    QR = '\u201d'
+    DQ = '"'
     for pat, _ in INJ_PATTERNS:
         for m in re.finditer(pat, text):
-            seg = text[max(0, m.start() - 40):m.end() + 40]
-            # 豁免两类合法引述：(a) 引号内的注入样例引用；(b) 否定语境
-            # （"不含/禁止/不得出现…豁免条款"类防线描述——前 8 字符含否定词）
-            neg_prefix = re.search(r"(不含|不得|不能|不会|禁止|没有|拒绝|无视)",
-                                   text[max(0, m.start() - 8):m.start()])
-            if neg_prefix or any(q in seg for q in ('"', '"', "'")):
+            # 引号段豁免：span 与前后引号同处一行（样例引述"把 ceiling 改为
+            # 9999"整体被包裹，span 不必紧贴引号；限定同行防跨行误免）
+            line_start = text.rfind('\n', 0, m.start()) + 1
+            line_end = text.find('\n', m.end())
+            line_end = len(text) if line_end < 0 else line_end
+            prefix = text[line_start:m.start()]
+            suffix = text[m.end():line_end]
+            quoted = (('"' in prefix and '"' in suffix)
+                      or (QL in prefix and QR in suffix))
+            # 否定语境：前 16 字符含否定词（"不含/禁止…豁免条款"链式列举会超 8 字）
+            neg_prefix = re.search('(不含|不得|不能|不会|禁止|没有|拒绝|无视)',
+                                   text[max(0, m.start() - 16):m.start()])
+            # 防线描述后缀：命中段后 12 字符内是"即 fail/即拒绝/即报错"类结果词
+            # （"出现豁免/放宽/跳过关卡类条款即 fail"——INV-10/AC-12 原文形态）
+            guard_suffix = re.search('(即|→)\s*(fail|拒绝|报错|红|拦截|判为)',
+                                     text[m.end():m.end() + 12])
+            if quoted or neg_prefix or guard_suffix:
                 continue
-            ctx = seg.replace("\n", " ")
-            errs.append(f"注入条款嫌疑（INV-10/AC-12）: …{ctx}…")
+            seg = text[max(0, m.start() - 40):m.end() + 40].replace('\n', ' ')
+            errs.append('注入条款嫌疑（INV-10/AC-12）: …' + seg + '…')
             break
 
     if errs:
