@@ -82,3 +82,91 @@ jobs:
             coverage/
           if-no-files-found: ignore
           retention-days: 14
+
+  suppression-budget:
+    # P2-2（ADR-0036 / .github #87）：抑制标记预算门——单 PR 净增阈值 + 合入树总量
+    # 棘轮 + ADR 逃生门。随 check.yml 分发：caller 的 check job 结论聚合本 job
+    # （reusable 内任一 job 红 = caller check 红），业务仓 re-pin 后自动生效，
+    # 无需改 caller gate needs。#19 重建合并时本 job 曾丢失——本提交为恢复（见
+    # .github #87 复核评论），非新设计。
+    # 非 PR 事件 n/a-success（推送面无 PR diff 语义；ADR-0032/0035 同款——调用方
+    # gate 无需登记 EXPECTED_SKIP）。
+    runs-on: ubuntu-latest
+    timeout-minutes: 5   # testing.yaml "gate<5min" 原则的硬上限
+    permissions:
+      contents: read   # 双仓只读 checkout（caller 合入树 + CI-Workflows 检测器/policy）+ GITHUB_TOKEN 拉 PR diff
+    steps:
+      - name: 非 PR 事件（n/a-success）
+        if: github.event_name != 'pull_request'
+        run: echo "::notice::suppression-budget 只对 pull_request 事件判定——本事件 n/a（success），无需 EXPECTED_SKIP 登记（ADR-0032/0036）"
+
+      - name: Harden Runner (egress audit)
+        if: github.event_name == 'pull_request'
+        uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85b0992719546e2c # v2.21.0
+        with:
+          egress-policy: audit
+
+      - name: Checkout 调用仓（PR 合入树——总量维度计数面）
+        if: github.event_name == 'pull_request'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: 取检测器与 policy（CI-Workflows@ciw-ref——workflow/policy/脚本同 ref 三耦合）
+        if: github.event_name == 'pull_request'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: Cloudbird-Software/CI-Workflows
+          ref: ${{ inputs.ciw-ref }}
+          path: ciw-sup
+          persist-credentials: false
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        if: github.event_name == 'pull_request'
+        with:
+          python-version: "3.12"
+
+      - name: 安装钉哈希依赖（PyYAML，与 requirements-test-integrity.txt 同锚）
+        if: github.event_name == 'pull_request'
+        run: pip install -q --require-hashes -r ciw-sup/.github/requirements-test-integrity.txt
+
+      - name: T1–T6 自测（执法前 fixture 校验——44 断言，工具自身算错比漏检更糟）
+        if: github.event_name == 'pull_request'
+        run: bash ciw-sup/scripts/suppression-budget-selftest.sh
+
+      - name: 取 PR diff / 标题 / 正文（pulls API）
+        if: github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUM: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          set -euo pipefail
+          gh api "repos/$REPO/pulls/$PR_NUM" -H "Accept: application/vnd.github.diff" > pr.diff
+          test -s pr.diff || { echo "::error::suppression-budget: PR diff 拉取为空（fail-closed）"; exit 1; }
+          printf '%s' "$PR_TITLE" > pr-title.txt
+          gh api "repos/$REPO/pulls/$PR_NUM" --jq '.body // ""' > pr-body.txt
+
+      - name: 取 ADR 清单（agent-registry decisions——逃生门存在性/scope 判定）
+        if: github.event_name == 'pull_request'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: Cloudbird-Software/agent-registry
+          sparse-checkout: decisions
+          path: adr-src
+          persist-credentials: false
+
+      - name: suppression-budget（P2-2 抑制标记预算门）
+        if: github.event_name == 'pull_request'
+        env:
+          REPO_NAME: ${{ github.event.repository.name }}   # zizmor：模板值经 env 间接引用，不内插进命令
+        run: |
+          bash ciw-sup/scripts/suppression-budget.sh \
+            --repo "$REPO_NAME" \
+            --diff pr.diff \
+            --tree . \
+            --policy ciw-sup/policy/suppressions.yaml \
+            --pr-title "$(cat pr-title.txt)" \
+            --pr-body pr-body.txt \
+            --adr-dir adr-src/decisions
