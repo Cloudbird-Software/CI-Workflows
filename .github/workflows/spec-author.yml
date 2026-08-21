@@ -14,9 +14,9 @@ on:
     secrets:
       # 调用方（conductor）显式传递（zizmor secrets-inherit 禁裸继承）；
       # workflow_dispatch 路径由 org secret 直接注入（visibility=all）
-      LLM_API_KEY:      { type: environment, required: true }
-      CB_APP_ID:        { type: environment, required: true }
-      AGENT_APP_SECRET: { type: environment, required: true }
+      LLM_API_KEY:      { required: true }
+      CB_APP_ID:        { required: true }
+      AGENT_APP_SECRET: { required: true }
   workflow_dispatch:
     inputs:
       issue_number: { type: number, required: true }
