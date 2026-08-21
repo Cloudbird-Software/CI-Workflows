@@ -1,0 +1,121 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/Cloudbird-Software/CI-Workflows/blob/main/pipeline/metering/record.schema.json",
+  "title": "metering-record/v1",
+  "description": "W2-C3（.github#216，ADR-0062）：LLM invoke 计量记录。一次 invoke（含流式多分片与工具回调聚合）恰一条；字段覆盖 spec BEH-09（model/prompt 版本/seed/采样参数/用量/耗时/exit 状态/产物 hash）+ hash 链（prev_record_sha256/record_sha256，canonical 形态排序键紧凑序列化后 sha256）。消费方：metering.py emit 落链前断言 / verify 验链 / aggregate 归账 / cost-check LLM 预算通道。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "invoke_id",
+    "role",
+    "model",
+    "ts_start",
+    "ts_end",
+    "prompt_version",
+    "prompt_bytes",
+    "sampling",
+    "usage",
+    "latency_ms",
+    "http_status",
+    "exit_status",
+    "stream",
+    "chunks",
+    "artifacts",
+    "record_index",
+    "prev_record_sha256",
+    "record_sha256"
+  ],
+  "properties": {
+    "schema": { "const": "metering-record/v1" },
+    "invoke_id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$",
+      "description": "聚合键（ADR-0062 决策 2）：跨分片对齐用；账本内唯一，重复即违约"
+    },
+    "role": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9._-]{0,63}$",
+      "description": "调用方角色档（spec-author/probe/conductor…）——cost-check 按此归账"
+    },
+    "model": { "type": "string", "minLength": 1 },
+    "ts_start": { "type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:]{8}Z$" },
+    "ts_end": { "type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:]{8}Z$" },
+    "prompt_version": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$",
+      "description": "BEH-09 prompt 版本：sha256(prompt + \\n + system)"
+    },
+    "prompt_bytes": { "type": "integer", "minimum": 0 },
+    "seed": { "type": ["integer", "null"], "minimum": 0 },
+    "sampling": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["max_tokens"],
+      "properties": {
+        "max_tokens": { "type": "integer", "minimum": 1 },
+        "temperature": { "type": ["number", "null"], "minimum": 0, "maximum": 2 },
+        "top_p": { "type": ["number", "null"], "minimum": 0, "maximum": 1 },
+        "thinking": {
+          "type": ["string", "null"],
+          "enum": ["disabled", "enabled", null],
+          "description": "GLM 4.5+ 推理开关；仅显式请求时记录"
+        }
+      }
+    },
+    "usage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["prompt_tokens", "completion_tokens", "total_tokens"],
+      "properties": {
+        "prompt_tokens": { "type": "integer", "minimum": 0 },
+        "completion_tokens": { "type": "integer", "minimum": 0 },
+        "total_tokens": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "latency_ms": { "type": "integer", "minimum": 0 },
+    "http_status": {
+      "type": ["integer", "null"],
+      "minimum": 100,
+      "maximum": 599,
+      "description": "null = 传输层失败（无 HTTP 应答，exit_status=error:transport）"
+    },
+    "exit_status": {
+      "type": "string",
+      "pattern": "^(ok|error:(http_[0-9]{3}|transport|metering))$",
+      "description": "invoke 终态；error:http_* / error:transport 也落链（零用量、审计面）"
+    },
+    "stream": { "type": "boolean" },
+    "chunks": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "聚合进本条记录的响应分片数（非流式=1）——单 invoke 多分片的聚合证据"
+    },
+    "artifacts": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "sha256", "bytes"],
+        "properties": {
+          "name": { "type": "string", "pattern": "^[a-z0-9][a-z0-9._-]{0,63}$" },
+          "sha256": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+          "bytes": { "type": "integer", "minimum": 0 }
+        }
+      },
+      "description": "产物引用（request/response 原始字节 sha256）——BEH-09 产物 hash"
+    },
+    "record_index": { "type": "integer", "minimum": 0 },
+    "prev_record_sha256": {
+      "type": ["string", "null"],
+      "pattern": "^[a-z0-9:._-]*$",
+      "description": "链前驱（创世记录为 null）；pattern 宽松仅拦形状，验链由 metering.py verify 全量重算"
+    },
+    "record_sha256": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$",
+      "description": "本记录 canonical 序列化（排序键、紧凑分隔、除本字段外）的 sha256"
+    }
+  }
+}

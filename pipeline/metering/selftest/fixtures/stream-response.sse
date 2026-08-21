@@ -1,0 +1,11 @@
+data: {"choices":[{"delta":{"content":"Hello"}}]}
+
+data: {"choices":[{"delta":{"content":" wor"}}]}
+
+data: {"choices":[{"delta":{"content":"ld"}}]}
+
+data: {"choices":[{"delta":{"content":"!"},"finish_reason":"stop"}]}
+
+data: {"choices":[],"usage":{"prompt_tokens":120,"completion_tokens":45,"total_tokens":165}}
+
+data: [DONE]
