@@ -183,9 +183,27 @@ jobs:
           python3 -m pip install --disable-pip-version-check --quiet pytest==8.4.2
           python3 -m unittest discover -s pipeline/holdout-unseal/tests -v
 
+  trust-gate-selftest:
+    # 信任门自测（W5-C2 .github#225 / ADR-0071，宪法 §5——替代 spec v3 risk-score）：
+    # 硬谓词白名单判定（每域每证据谓词键逐个缺失断言——缺证据=拒绝不是中性）、
+    # 熔断前置 fail-closed（ADR-0040 联动）、排除域永远人签、shadow 决策记录
+    # （executed=false）+ owner 裁决比对（一致/逃逸/陷阱三类）+ 解锁判定边界
+    # （49/50、逃逸重置、陷阱放行重置、陷阱占比 <10% 不解锁）+ 5% 抽审确定性
+    # （种子可注入）+ CLI 端到端链路——零 LLM、零网络。
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: trust-gate 自测（AC-1~AC-4）
+        run: python3 -m unittest discover -s pipeline/trust-gate/tests -v
+
   gate:
     if: always()
-    needs: [hygiene, test-integrity-selftest, metering-selftest, adversary-selftest, entropy-selftest, bugflow-selftest, holdout-unseal-selftest]
+    needs: [hygiene, test-integrity-selftest, metering-selftest, adversary-selftest, entropy-selftest, bugflow-selftest, holdout-unseal-selftest, trust-gate-selftest]
     runs-on: ubuntu-latest
     timeout-minutes: 5    # testing.yaml "gate<5min" 原则的硬上限
     permissions:

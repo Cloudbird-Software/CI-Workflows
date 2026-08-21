@@ -1,0 +1,65 @@
+schema: trust-gate-predicates/v1
+# ============================================================================
+# predicates.yaml —— 信任门硬谓词白名单（版本化清单）
+# 真源: 本文件（宪法 §5「信任演进」/ ADR-0071 / 工作卡 .github#225 W5-C2）
+# 执行: pipeline/trust-gate/trust_gate.py（零 LLM 纯确定性判定）
+# 替代: spec v3 risk-score 标量 + ceiling 40（spec v4 修订 1 明裁废除——
+#       标量把「未知」折叠成「安全」，改为谓词清单：缺证据=拒绝，不是中性）
+# 语义: 合并的充要条件 = 全关卡绿 ∧ 证据齐全 ∧ 属于已解锁域（ADR-0071 决策 1）。
+#       每项证据 = 一个谓词键；evidence bundle 中该键缺位或为 false = 拒绝，
+#       退出码 1 且报告逐项列出缺失谓词键（宁可错杀进人签，不可放过）。
+# 证据生产者: 各谓词键由上游确定性关卡产出（如 AST 等价关卡/变异关卡/
+#       计量账本），evidence bundle 只汇编不判定——本表不做任何打分。
+# 修订: 改本表 = C1 变更（须引用 ADR + PR 评审），版本号 version +1。
+# ============================================================================
+version: 1
+
+defaults:
+  # 解锁判据（ADR-0071 决策 3/4）：连续一致 ≥50 例、零逃逸、窗口内陷阱占比 ≥10%
+  min_consecutive_agreement: 50
+  min_trap_ratio: 0.10
+  # 解锁后随机抽人审比例（ADR-0071 决策 5；随机种子可注入=确定性可复现抽审）
+  post_unlock_sample_rate: 0.05
+  # 成本/值守熔断（ADR-0040 无人值守护栏——判定前置检查，置位即直接拒绝；
+  # 只准降级为人签，不准降级为少验。org Actions 变量名）
+  circuit_breaker_variable: AUTO_MERGE_DISABLED
+
+gates:
+  # 「全关卡绿」谓词：evidence bundle 的 checks 映射里，下列 required 关卡
+  # 必须全部存在且结论恰为 success（缺关卡/未跑/失败/取消 = 拒绝，非中性）。
+  # check 名 = org 统一 required check 名（BP-2 全组织统一 gate）。
+  required: [gate]
+
+domains:
+  # 前三解锁域（宪法 §5 固定 + ADR-0071 决策 6；域选择标准 = 可逆性×可观测性×oracle 强度）
+  docs-only:
+    # 域①：无行为 diff 的整洁（格式化/注释/文档同步，AST 等价可证）
+    description: 无行为 diff 的整洁——格式化/注释/文档同步（AST 等价可证）
+    requires:
+      - diff.ast-equivalence.proven      # AST 等价证明记录（无行为 diff 的机器可判证据）
+      - evidence.negative-control        # 负控制记录（AC-1：无此记录的 PR 拒绝合并）
+      - evidence.metering-record         # 计量记录（本 PR 关卡运行的账本切片；无 LLM invoke 时为空切片记录）
+  test-only:
+    # 域②：只增测试（不动产品代码，变异分必须升）
+    description: 只增测试——不动产品代码，变异分必须升
+    requires:
+      - diff.product-code-untouched      # 产品代码零触及的 diff 记录
+      - mutation.score-improved          # 变异分上升记录（oracle 强度证据）
+      - evidence.negative-control        # 负控制记录
+      - evidence.metering-record         # 计量记录
+  failing-repro-fix:
+    # 域③：有 failing repro 的小修复（红→绿+负控制+只碰 repro 覆盖文件——全系统最强 oracle）
+    description: 有 failing repro 的小修复——红→绿+负控制+只碰 repro 覆盖文件
+    requires:
+      - repro.red-to-green               # 红→绿判定记录（failing repro 先红后绿）
+      - repro.negative-control           # 负控制记录（修掉修复后测试须回红）
+      - diff.repro-covered-files-only    # 只碰 repro 覆盖文件的 diff 记录
+      - evidence.metering-record         # 计量记录
+
+excluded_domains:
+  # 永远人签（宪法 §5「明确排除」+ ADR-0071 决策 6——谓词表硬编码排除，
+  # 不是「暂未解锁」：这些域的 PR 无论证据如何都不会得到 auto-merge 判定）
+  - new-feature          # 新功能实现
+  - dependency-upgrade   # 依赖升级
+  - public-api-schema    # 触及公开 API/schema 的改动
+  - ci-workflows         # 触及 CI-Workflows 的改动（.github/workflows/**、pipeline/**）
