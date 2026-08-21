@@ -6,40 +6,122 @@
   "type": "object",
   "additionalProperties": false,
   "required": [
-    "schema", "ts", "tag", "model", "prompt_version", "prompt_bytes",
-    "sampling", "usage", "latency_ms", "http_status",
-    "request_sha256", "response_sha256"
+    "schema",
+    "ts",
+    "tag",
+    "model",
+    "prompt_version",
+    "prompt_bytes",
+    "sampling",
+    "usage",
+    "latency_ms",
+    "http_status",
+    "request_sha256",
+    "response_sha256"
   ],
   "properties": {
-    "schema": { "const": "llm-usage/v1" },
-    "ts": { "type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:]{8}Z$" },
-    "tag": { "type": "string", "minLength": 1, "maxLength": 64 },
-    "model": { "type": "string", "minLength": 1 },
-    "prompt_version": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
-    "prompt_bytes": { "type": "integer", "minimum": 0 },
-    "seed": { "type": ["integer", "null"] },
+    "schema": {
+      "const": "llm-usage/v1"
+    },
+    "ts": {
+      "type": "string",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:]{8}Z$"
+    },
+    "tag": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64
+    },
+    "model": {
+      "type": "string",
+      "minLength": 1
+    },
+    "prompt_version": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "prompt_bytes": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "seed": {
+      "type": [
+        "integer",
+        "null"
+      ]
+    },
+    "thinking": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "enum": [
+        "disabled",
+        "enabled",
+        null
+      ],
+      "description": "GLM 4.5+ 推理开关（disabled=即时正文）；仅显式请求时记录"
+    },
     "sampling": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["max_tokens"],
+      "required": [
+        "max_tokens"
+      ],
       "properties": {
-        "max_tokens": { "type": "integer", "minimum": 1 },
-        "temperature": { "type": ["number", "null"], "minimum": 0, "maximum": 2 }
+        "max_tokens": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "temperature": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 2
+        }
       }
     },
     "usage": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["prompt_tokens", "completion_tokens", "total_tokens"],
+      "required": [
+        "prompt_tokens",
+        "completion_tokens",
+        "total_tokens"
+      ],
       "properties": {
-        "prompt_tokens": { "type": "integer", "minimum": 0 },
-        "completion_tokens": { "type": "integer", "minimum": 0 },
-        "total_tokens": { "type": "integer", "minimum": 0 }
+        "prompt_tokens": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "completion_tokens": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "total_tokens": {
+          "type": "integer",
+          "minimum": 0
+        }
       }
     },
-    "latency_ms": { "type": "integer", "minimum": 0 },
-    "http_status": { "type": "integer", "minimum": 200, "maximum": 299 },
-    "request_sha256": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
-    "response_sha256": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" }
+    "latency_ms": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "http_status": {
+      "type": "integer",
+      "minimum": 200,
+      "maximum": 299
+    },
+    "request_sha256": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "response_sha256": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    }
   }
 }

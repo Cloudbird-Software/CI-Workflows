@@ -10,7 +10,7 @@ on:
   workflow_dispatch:
     inputs:
       model:
-        { description: "探测用 provider 模型名", type: string, default: "glm-4-flash" }
+        { description: "探测用 provider 模型名", type: string, default: "glm-4.5-air" }
   schedule:
     - cron: "17 */6 * * *"   # 每 6h；非整点分钟避开 GitHub 调度洪峰
 
@@ -34,10 +34,10 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - name: 最小调用（max_tokens=1，经计量 wrapper）
+      - name: 最小调用（max_tokens=16 + thinking disabled，经计量 wrapper）
         env:
           LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
-          LLM_PROBE_MODEL: ${{ inputs.model || 'glm-4-flash' }}
+          LLM_PROBE_MODEL: ${{ inputs.model || 'glm-4.5-air' }}
         run: |
           printf 'connectivity probe' > /tmp/p.txt
           reply=$(bash scripts/llm-call.sh --model "$LLM_PROBE_MODEL" \
