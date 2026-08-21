@@ -1,0 +1,147 @@
+name: patrol
+# patrol 巡逻服务（W3-C2 .github#219 / ADR-0065；宪法 §3 patrol/§8 yield）
+# 三源场景（AC 注册表派生/历史逃逸模式攻击语法/LLM 前沿探索+metamorphic）
+# → 五类机器可判定 oracle → 指纹去重+频控 → observation 桶两次独立升级
+# → 毕业进 CI 回归并离库。
+#
+# 权限铁律（ADR-0065 决策 5）：只读运行 + 开 issue；无 push/PR 写路径——
+# workflow permissions 是执法面（issues:write 仅开单 job），政策文件
+# （.github 仓 governance/policy/patrol.yaml）再声明性复核一遍。
+#
+# shadow 起步：政策 issue_mode=draft——finding 落 issue 草稿 artifact（零线上
+# 噪音），切 gh 真开单=C1 政策变更。PR 上下文只跑 selftest（零真实 LLM/零开单），
+# 巡逻 job 仅 schedule/manual——PR 可改的代码绝不在 PR 事件里被授权巡逻。
+on:
+  schedule:
+    - cron: "43 2 * * *"   # 每日 02:43 UTC（宪法 §6「cron 每日 patrol 启动」；避开整点调度洪峰——llm-connectivity 17 */6 同款纪律）
+  workflow_dispatch:
+  pull_request:
+    paths: [".github/workflows/patrol.yml", "pipeline/patrol/**"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: patrol
+  cancel-in-progress: false   # 巡逻不并发（跨 run 状态目录防互踩）；节奏错峰由 cron+频控保证
+
+jobs:
+  selftest:
+    # 判定物有效性（宪法 §4E）：零真实 LLM（离线回放）、零线上开单（draft 模式）。
+    # 覆盖：oracle 五类判定 fixture（含负控制）/observation 两次独立升级/指纹去重
+    # 幂等/毕业离库/频控降频/LLM 无凭据诚实降级 + demo 演习全链路。
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: PyYAML（政策/语料解析）
+        run: python3 -m pip install --disable-pip-version-check --quiet pyyaml==6.0.3
+      - name: 语法预检（bash -n + python ast——不产 __pycache__）
+        run: |
+          bash -n pipeline/patrol/patrol.sh
+          for f in pipeline/patrol/patrol.py pipeline/patrol/demo-target/service.py \
+                    pipeline/patrol/demo-target/run-exercise.py; do
+            python3 -c 'import ast,sys;ast.parse(open(sys.argv[1],encoding="utf-8").read())' "$f"
+          done
+      - name: 单元自测（五类 oracle/observation 升级/指纹幂等/毕业/频控降频/LLM 降级）
+        run: python3 -m unittest discover -s pipeline/patrol/tests -v
+      - name: demo 演习（AC-1/AC-3 证据：issue 草稿 + 毕业实录——draft 模式零线上噪音）
+        run: python3 pipeline/patrol/demo-target/run-exercise.py
+      - name: 演习产物上传（issue 草稿/毕业回归/yield 报告——PR body 引用即证据）
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: patrol-exercise-${{ github.run_id }}
+          path: |
+            patrol-exercise/
+          retention-days: 30
+          if-no-files-found: warn   # 演习产物在 tmp（断言日志已入 step 输出）；缺文件不掩盖红
+
+  patrol:
+    # 巡逻本体：仅 schedule/manual（PR 上下文不巡逻）。needs selftest——
+    # 判定物失效（oracle 误判/去重失效）时先红自测，不烧巡逻预算。
+    if: github.event_name != 'pull_request'
+    needs: selftest
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      issues: write   # 开单唯一授权面（ADR-0065 决策 5：只读运行+开 issue）
+      actions: read   # 跨 run 状态恢复（gh run download 上轮 patrol-state artifact——指纹去重/observation 独立性判定依赖跨 run 台账）
+    steps:
+      - name: Harden Runner（egress 白名单：github/raw/LLM provider）
+        uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c # v2.21.0
+        with:
+          egress-policy: block
+          allowed-endpoints:
+            github.com:443
+            api.github.com:443
+            objects.githubusercontent.com:443
+            raw.githubusercontent.com:443
+            open.bigmodel.cn:443
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: PyYAML（政策解析）
+        run: python3 -m pip install --disable-pip-version-check --quiet pyyaml==6.0.3
+
+      - name: 恢复上轮状态（指纹台账/observation 桶/毕业语料——AC-2/AC-1 跨 run 依据）
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -uo pipefail
+          LAST=$(gh run list --workflow patrol.yml --status success --event schedule \
+                 --limit 1 --json databaseId --jq '.[0].databaseId' 2>/dev/null || true)
+          if [ -n "${LAST:-}" ] && [ "$LAST" != "null" ]; then
+            # 只取 selftest 绿的 schedule run 的 patrol-state（本 run 的新 state 随后覆盖）
+            gh run download "$LAST" -n patrol-state -D state/ \
+              && echo "state 恢复自 run $LAST" || echo "WARN: state 下载失败——按空状态续跑（指纹去重重新累计）"
+          else
+            echo "首轮巡逻（无历史 state）"
+          fi
+
+      - name: 拉政策（fail-closed：拉不到不巡逻——宁可被 dead-man 记缺席，不盲跑）
+        env:
+          POLICY_URL: ${{ vars.PATROL_POLICY_URL || 'https://raw.githubusercontent.com/Cloudbird-Software/.github/main/governance/policy/patrol.yaml' }}
+        run: |
+          curl -fsSL --max-time 30 "$POLICY_URL" -o "$RUNNER_TEMP/patrol.yaml"
+          echo "policy: $(sha256sum "$RUNNER_TEMP/patrol.yaml" | cut -c1-16)… ← $POLICY_URL"
+
+      # LLM_API_KEY 只进本步骤 env（zizmor secret-exposure 模型，ocr-shadow 同款
+      # 防线）：patrol.py 子进程只透传给 metering-wrapper.sh；无凭据时该半源
+      # 诚实降级（skipped-no-creds 计数，不伪装生成过）。
+      - name: 巡逻（issue_mode 由政策定：当前 draft=零线上开单）
+        env:
+          GH_TOKEN: ${{ github.token }}
+          LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
+          RUN_ID: ${{ github.run_id }}
+        run: |
+          SEED=$((RUN_ID % 100000))   # seed=run_id 派生——同 run 可复现可审计
+          python3 pipeline/patrol/patrol.py run \
+            --policy "$RUNNER_TEMP/patrol.yaml" \
+            --state state/ --out patrol-out/ \
+            --target-base "$GITHUB_WORKSPACE" \
+            --repo "${GITHUB_REPOSITORY}" \
+            --run-id "patrol-${RUN_ID}" --seed "$SEED"
+
+      - name: 产物上传（issue 草稿/yield 报告/毕业回归）
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: patrol-out-${{ github.run_id }}
+          path: patrol-out/
+          retention-days: 90   # 观察窗+yield 时序（ADR-0073 dashboard 消费）
+          if-no-files-found: warn
+
+      - name: 跨 run 状态上传（指纹台账/observation 桶/corpus-state——下轮恢复）
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: patrol-state
+          path: state/
+          retention-days: 90
+          if-no-files-found: warn   # 首轮/无状态时保绿——缺状态不等于失败
