@@ -1,0 +1,14 @@
+{
+  "id": "golden-known-bad-02-partial-threshold",
+  "source": "handcrafted/AC-8-reverse-test",
+  "type": "known-bad",
+  "expected_verdict": "insufficient",
+  "note": "部分 criterion 略低于阈值（0.69 vs 0.7）：验证阈值比较非松弛取整，边界行为严格。构造独立于判定脚本。",
+  "criteria_scores": [
+    {"id": "lock-pin", "aggregated": 0.95, "threshold": 0.7, "scores": [0.95, 0.95, 0.95]},
+    {"id": "criteria-derivation", "aggregated": 0.69, "threshold": 0.7, "scores": [0.7, 0.69, 0.68]},
+    {"id": "endpoint-probe", "aggregated": 0.88, "threshold": 0.7, "scores": [0.88, 0.88, 0.88]}
+  ],
+  "token_account_ok": true,
+  "threshold_global": 0.7
+}
