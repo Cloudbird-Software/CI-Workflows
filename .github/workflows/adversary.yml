@@ -43,7 +43,7 @@ jobs:
             open.bigmodel.cn:443
             pypi.org:443
             files.pythonhosted.org:443
-            api.longcat.chat:443
+            api.kimi.com:443
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false   # 账本同步走显式 GH_TOKEN 的 contents API，不落 git 凭据
@@ -63,7 +63,7 @@ jobs:
       - name: 攻击（judge-deep 锁定 + 计量 wrapper，ADR-0067/0062）
         env:
           LLM_API_KEY: ${{ secrets.LLM_API_KEY1 }}
-          LLM_BASE_URL: https://api.longcat.chat/openai/v1
+          LLM_BASE_URL: ${{ vars.LLM_ENDPOINT1 }}
           LLM_MODEL: ${{ vars.MODEL1 }}
           ADV_TARGET: ${{ inputs.target }}
           ADV_REPLAY: ${{ inputs.replay_file }}
