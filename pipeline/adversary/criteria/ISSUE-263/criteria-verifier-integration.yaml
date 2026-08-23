@@ -1,0 +1,55 @@
+# criteria-verifier-integration.yaml —— ISSUE-263 W3-C3 llm-verifier 接入 criteria
+# 一卡一文件，机器可追溯到卡的 AC 列表（AC-1 / AC-7 / AC-10 / AC-11）。
+# 真源：Cloudbird-Software/.github#279 | Spec: specs/ISSUE-263/spec.md v5
+#
+# 格式约定（llm_verifier.py load_criteria 消费）：
+#   defaults.threshold  = 全局默认阈值（单 criterion 未指定 threshold 时沿用）
+#   criteria[].id       = AC 编号（机器追溯键，必须对应 spec acceptanceCriteria.id）
+#   criteria[].name     = 人类可读名
+#   criteria[].text     = 评分指令（verifier 据此打连续分）
+#   criteria[].threshold= 该 criterion 的独立阈值（覆盖 defaults.threshold）
+version: 1
+card: ISSUE-263
+card_ref: Cloudbird-Software/.github#279
+spec: specs/ISSUE-263/spec.md
+spec_version: 5
+defaults:
+  threshold: 0.7
+criteria:
+  - id: AC-1
+    name: "LLM-as-a-Verifier 范式承接"
+    text: |
+      判定环节是否采用开源 LLM-as-a-Verifier 实践：绝对细粒度 reward、criteria 分解、
+      K 次重复评估、阈值 gate，输出结构化连续分；PPT 锦标赛仅作 best-of-N 选择层，
+      胜率不得作为 gate 输入。criteria 文件一卡一份且机器可追溯到对应卡的 AC 列表；
+      阈值 gate、endpoint 探测、成本核对作用于同一次 verifier run 的同一判定链。
+      评估：CI 日志是否包含 llm-verifier 实际调用记录、逐 criterion 连续分 JSON 与
+      token 消耗，且日志由独立于 verifier 的采集组件写入。
+    threshold: 0.7
+
+  - id: AC-7
+    name: "verifier 运行时可观测证据"
+    text: |
+      CI 日志必须包含 llm-verifier 实际调用记录、逐 criterion 连续分 JSON 与 token 消耗。
+      运行时证据需对一次真实 run 的日志做独立抽查，确认调用记录非 verifier 自报
+      （独立采集组件写入）。评估：调用记录、连续分、token 消耗三者齐备且来源独立。
+    threshold: 0.7
+
+  - id: AC-10
+    name: "endpoint 三探测制度化"
+    text: |
+      每次 verifier run 前必须探测 endpoint：检测 logprobs 有无、top_logprobs 上限、
+      prefill/structured_outputs 支持，结果决定打分抽取路径与精度预期并写入报告；
+      不满足最低要求的 endpoint 配置即失败（fail-closed）；探测本身失败/超时不得误判为通过；
+      top_logprobs 截断造成的精度折损必须在 run 报告中声明。
+      评估：三探测在每次 run 前执行，不满足即 fail-closed，结果写入报告。
+    threshold: 0.75
+
+  - id: AC-11
+    name: "verifier token 成本交叉核对"
+    text: |
+      token 成本持久化挂接 ADR-0062 计量 wrapper 与 automation-limits.yaml 既有
+      llm_tokens 预算口径；与 LLM 响应 usage 字段交叉核对，偏差超阈值时该 run 判定
+      作废并转人工（非仅告警）；K 与 pivots 为暴露的成本旋钮，降档须留痕且不得改动
+      判定语义与阈值。评估：token 账落盘、与 usage 交叉核对、偏差超阈值作废转人工。
+    threshold: 0.7
