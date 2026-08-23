@@ -1,50 +1,29 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""check_run_writeback.py —— 红队 verdict 写回 spec PR check run（W4-C2 .github#283，INV-02/AC-4/AC-14）
+"""check_run_writeback.py —— 红队 verdict 以 check run 写回 spec PR（W4-C2 .github#283，INV-02）。
 
-adversary 产出 verdict 后，以 App 令牌（单仓作用域、checks:write，1h 过期）
-向 spec PR 写回 check run。check 名 = "adversary"，纳入 specs/**
-required checks（W4-C3 由 .github/governance/rulesets/main-protection.json 登记）。
-写回经 App 令牌（INV-02：GITHUB_TOKEN 不持有状态写权；check 写回=状态写）。
+adversary 产出判定报告（adversary-report/v1）后，本模块以 cloudbrid-agent App 令牌
+（checks:write 权限，INV-02：GITHUB_TOKEN 不持有状态写权）在 spec PR 的 head commit
+上创建 check run，使红队 verdict 成为合并阻断项（BEH-01）。
 
-写回内容：
-  - name: "adversary"
-  - status: completed
-  - conclusion:
-        verdict=survived    → success
-        verdict=insufficient → failure（语义审计阻断，AC-14）
-        verdict=no-attempts → neutral（infra，不阻断）
-        verdict=其它/缺失    → failure（fail-closed）
-  - output.title/summary：verdict + 攻击摘要（中英双语，summary ≤65535 字符）
-  - output.text：完整报告 JSON（截断到 GitHub check run 65535 字符上限）
-
-PR 定位策略（确定性，禁人工打标）：
-  - 优先取 --spec-pr（显式 PR 号，由调用方从 issue/PR 上下文解析）
-  - 否则取 adversary 报告 target 路径，查 .github 仓 open PR 中 head 含该路径
-    变更者（list-pull-requests + 逐 PR 文件列表；多匹配取最近 updated）
-  - 失败即 fail-closed exit 2（不静默丢弃写回义务——spec PR 无 adversary
-    check 必须红，见 AC-4 负向断言；写回失败≠免除义务）
-
-App 令牌铸造（self-contained）：
-  - 优先取 env APP_TOKEN（调用方已铸）
-  - 否则用 CB_APP_ID + AGENT_APP_SECRET（/ _FILE）自行铸造：
-    JWT(iat, exp, iss=app_id) → GET app/installations → POST installation/access_tokens
-  - 令牌作用域 = 单仓（--spec-repo 指定），与 gh-app-token.sh 同语义
+verdict → check run 结论映射（fail-closed）：
+  survived     → success        （套件通过考验，放行合并）
+  insufficient → failure        （套件不充分，blocking——spec PR 须先补强套件）
+  no-attempts  → neutral        （白卷/infra，AC-15：不进入失败/锁卡分支，留痕+报人）
+  报告缺失/不合 schema → failure（fail-closed：无 verdict 不放行）
 
 用法：
   python3 pipeline/adversary/check_run_writeback.py \
       --report <adversary-report.json> \
-      --spec-pr <number> \
-      [--spec-repo Cloudbird-Software/.github]
+      --repo Cloudbird-Software/.github \
+      --pr-number 284 \
+      --head-sha <spec-pr-head-sha> \
+      [--gh-token $APP_TOKEN] \
+      [--name adversary]
 
-  # 或直接传令牌，跳过铸造：
-  APP_TOKEN=<token> python3 ... --report ... --spec-pr ...
-
-env（自行铸造时）：
-  CB_APP_ID                GitHub App ID（缺省读 org 变量 CLOUDBIRD_APP_ID → 4632704）
-  AGENT_APP_SECRET         私钥 PEM 内容（首选 AGENT_APP_SECRET_FILE 路径）
-  APP_TOKEN                直接传入已铸好的令牌（优先）
-退出码：0=写回成功 | 2=参数/环境/PR 定位失败 | 3=API 失败 | 4=报告无效
+  python3 pipeline/adversary/check_run_writeback.py \
+      --report - --repo Cloudbird-Software/.github --pr-number 284 --head-sha $SHA \
+      --gh-token $APP_TOKEN < report.json
 """
 from __future__ import annotations
 
@@ -53,288 +32,194 @@ import datetime as dt
 import json
 import os
 import sys
-import time
 import urllib.error
 import urllib.request
+from pathlib import Path
 from typing import Any
 
-GITHUB_API = os.environ.get("CB_GITHUB_API", "https://api.github.com")
-CHECK_RUN_NAME = "adversary"
-MAX_OUTPUT_TEXT = 64000  # GitHub check run output.text 上限 65535；留余量
+# adversary-report/v1 必填字段（与 w3-c1/pipeline/adversary/adversary.py 产出一致）
+REPORT_REQUIRED = ["schema", "ts", "target", "verdict", "blocking"]
+VERDICT_CONCLUSION = {
+    "survived": "success",
+    "insufficient": "failure",
+    "no-attempts": "neutral",
+    # W4-C3 EXPECTED_SKIP：开发路径豁免（diff 路径集无 specs/**），确定性派生，放行
+    "skip": "success",
+}
 
 
 def now_iso() -> str:
     return dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-def die(msg: str, rc: int = 2) -> None:
-    print(f"::error::check_run_writeback: {msg}", file=sys.stderr)
-    sys.exit(rc)
+def err(msg: str) -> None:
+    prefix = "::error::" if os.environ.get("CI") else "FATAL: "
+    print(prefix + msg, file=sys.stderr)
 
 
-# ----------------------------------------------------------------------------
-# App 令牌铸造（JWT → installation → token），与 gh-app-token.sh 同语义
-# ----------------------------------------------------------------------------
-def mint_installation_token(app_id: str, pem_private_key: str, spec_repo: str) -> str:
-    """为 spec_repo 铸造单仓 App 安装令牌。返回令牌字符串。"""
+def die(code: int, msg: str) -> None:
+    err(msg)
+    sys.exit(code)
+
+
+def parse_args(argv=None) -> argparse.Namespace:
+    p = argparse.ArgumentParser(
+        description="红队 verdict 以 check run 写回 spec PR（W4-C2 .github#283，INV-02）"
+    )
+    p.add_argument("--report", required=True, help="adversary-report/v1 JSON 路径（- = stdin）")
+    p.add_argument("--repo", required=True, help="目标仓库 owner/name（spec PR 所在仓）")
+    p.add_argument("--pr-number", type=int, required=True, help="spec PR 编号（仅用于 summary 引用）")
+    p.add_argument("--head-sha", required=True, help="spec PR head commit SHA（check run 挂接点）")
+    p.add_argument("--gh-token", default=os.environ.get("GH_TOKEN"), help="App 令牌（checks:write）")
+    p.add_argument("--name", default="adversary", help="check run 名称（默认 adversary）")
+    p.add_argument("--dry-run", action="store_true", help="仅打印请求体，不实际创建")
+    return p.parse_args(argv)
+
+
+def load_report(path: str) -> dict:
+    if path == "-":
+        raw = sys.stdin.read()
+    else:
+        raw = Path(path).read_text(encoding="utf-8")
     try:
-        import jwt  # PyJWT（CI 环境可选依赖；缺失时退化到 PyJWT 纯 python 实现）
-        now = int(time.time())
-        payload = {"iat": now - 60, "exp": now + 600, "iss": app_id}
-        assertion = jwt.encode(payload, pem_private_key, algorithm="RS256")
-    except Exception as e:
-        die(f"JWT 签名失败（需 PyJWT + 有效 PEM 私钥）：{e}")
-
-    def api(path: str, method: str = "GET", body: Any = None, token: str | None = None) -> tuple[int, Any]:
-        data = json.dumps(body).encode() if body is not None else None
-        headers = {"Accept": "application/vnd.github+json", "User-Agent": "check_run_writeback"}
-        if token:
-            headers["Authorization"] = f"Bearer {token}"
-        elif path.endswith(("/installations",)):
-            headers["Authorization"] = f"Bearer {assertion}"
-        req = urllib.request.Request(GITHUB_API + path, data=data, headers=headers, method=method)
-        try:
-            with urllib.request.urlopen(req, timeout=30) as r:
-                raw = r.read()
-                return r.status, (json.loads(raw) if raw.strip() else {})
-        except urllib.error.HTTPError as e:
-            err = e.read().decode("utf-8", errors="replace")
-            return e.code, {"_http_error": err}
-
-    # 1) 取 installation id（org 作用域）
-    org = spec_repo.split("/")[0]
-    st, installs = api("/app/installations")
-    if st != 200:
-        die(f"读取 App installations 失败 HTTP {st}: {installs}")
-    inst_id = None
-    for inst in installs:
-        target = (inst.get("target_type") or "")
-        acct = (inst.get("account") or {}).get("login", "")
-        if acct.lower() == org.lower():
-            inst_id = inst["id"]
-            break
-    if inst_id is None:
-        die(f"App 未安装在组织 {org}（无 installation）")
-
-    # 2) 取 installation access token，限定仓库
-    repos_body = {"repositories": [spec_repo.split("/")[1]]} if "/" in spec_repo else None
-    st, tok = api(f"/app/installations/{inst_id}/access_tokens", "POST", repos_body)
-    if st not in (200, 201) or "token" not in tok:
-        die(f"铸造 installation token 失败 HTTP {st}: {tok}")
-    return tok["token"]
+        data = json.loads(raw)
+    except json.JSONDecodeError as e:
+        raise ValueError(f"报告 JSON 解析失败：{e}") from e
+    if not isinstance(data, dict):
+        raise ValueError(f"报告根类型错误：{type(data).__name__}")
+    return data
 
 
-def get_app_token(spec_repo: str) -> str:
-    """获取写回用 App 令牌（env 优先，否则自行铸造）。"""
-    token = os.environ.get("APP_TOKEN", "")
-    if token:
-        return token
-    app_id = os.environ.get("CB_APP_ID", "") or os.environ.get("CLOUDBIRD_APP_ID", "4632704")
-    if not app_id:
-        die("缺少 APP_TOKEN 或 CB_APP_ID，无法铸造 App 令牌")
-    pem = os.environ.get("AGENT_APP_SECRET", "")
-    pem_file = os.environ.get("AGENT_APP_SECRET_FILE", "")
-    if not pem and pem_file:
-        pem = _read_pem_file(pem_file)
-    if not pem:
-        die("缺少 AGENT_APP_SECRET / AGENT_APP_SECRET_FILE，无法铸造 App 令牌")
-    return mint_installation_token(app_id, pem, spec_repo)
+def validate_report(data: dict) -> list[str]:
+    """校验 adversary-report/v1 schema；返回缺失字段列表（空=通过）。"""
+    schema_key = data.get("schema")
+    if schema_key != "adversary-report/v1":
+        return [f"schema={schema_key!r}（期望 adversary-report/v1）"]
+    return [k for k in REPORT_REQUIRED if k not in data]
 
 
-def _read_pem_file(path: str) -> str:
-    # ~ 展开（兼容 MSYS/Git Bash）
-    if path.startswith("~"):
-        path = os.path.expanduser(path)
-    try:
-        with open(path, encoding="utf-8") as f:
-            return f.read()
-    except OSError as e:
-        die(f"读取私钥文件失败 {path}: {e}")
+def verdict_to_conclusion(verdict: str) -> str:
+    """verdict → check run 结论（fail-closed：未知 verdict → failure）。"""
+    c = VERDICT_CONCLUSION.get(verdict)
+    if c is None:
+        err(f"未知 verdict={verdict!r}，按 fail-closed 判 failure")
+        return "failure"
+    return c
 
 
-# ----------------------------------------------------------------------------
-# GitHub API 薄封装
-# ----------------------------------------------------------------------------
-class Gh:
-    def __init__(self, token: str, repo: str):
-        self.token = token
-        self.repo = repo
-        self.org, self.name = repo.split("/", 1) if "/" in repo else ("", repo)
+def build_check_run(data: dict, pr_number: int, repo: str) -> dict:
+    verdict = data.get("verdict", "missing")
+    conclusion = verdict_to_conclusion(verdict)
+    blocking = data.get("blocking", conclusion == "failure")
+    exploited = data.get("exploited", [])
+    holes = data.get("holes", [])
+    attempt_count = data.get("attempt_count", 0)
+    ts = data.get("ts", now_iso())
+    target = data.get("target", "")
 
-    def call(self, path: str, method: str = "GET", body: Any = None, expected: tuple[int, ...] = (200, 201, 204)) -> Any:
-        url = GITHUB_API + path
-        data = json.dumps(body).encode() if body is not None else None
-        headers = {
-            "Authorization": f"Bearer {self.token}",
-            "Accept": "application/vnd.github+json",
-            "User-Agent": "check_run_writeback",
-        }
-        req = urllib.request.Request(url, data=data, headers=headers, method=method)
-        try:
-            with urllib.request.urlopen(req, timeout=30) as r:
-                raw = r.read()
-                return json.loads(raw) if raw.strip() else {}
-        except urllib.error.HTTPError as e:
-            err = e.read().decode("utf-8", errors="replace")
-            msg = f"API {method} {path} HTTP {e.code}: {err[:500]}"
-            if e.code in (403, 422):
-                raise RuntimeError(f"{msg}（权限/参数问题）") from e
-            raise RuntimeError(msg) from e
-
-    def get_pr_head_sha(self, pr_number: int) -> str:
-        d = self.call(f"/repos/{self.repo}/pulls/{pr_number}")
-        sha = (d.get("head") or {}).get("sha", "")
-        if not sha:
-            die(f"PR #{pr_number} 无 head sha")
-        return sha
-
-    def list_open_prs(self) -> list[dict]:
-        out: list[dict] = []
-        for page in range(1, 6):  # 上限 5 页
-            chunk = self.call(f"/repos/{self.repo}/pulls?state=open&per_page=100&page={page}&sort=updated&direction=desc")
-            if not isinstance(chunk, list) or not chunk:
-                break
-            out.extend(chunk)
-            if len(chunk) < 100:
-                break
-        return out
-
-    def pr_changed_files(self, pr_number: int) -> list[str]:
-        out: list[str] = []
-        for page in range(1, 10):
-            chunk = self.call(f"/repos/{self.repo}/pulls/{pr_number}/files?per_page=100&page={page}")
-            if not isinstance(chunk, list) or not chunk:
-                break
-            out.extend(f.get("filename", "") for f in chunk)
-            if len(chunk) < 100:
-                break
-        return out
-
-    def upsert_check_run(self, head_sha: str, body: dict, name: str = CHECK_RUN_NAME) -> dict:
-        # 同名 check run 已存在则更新，否则创建
-        existing = self.call(f"/repos/{self.repo}/commits/{head_sha}/check-runs?per_page=100")
-        match = next((c for c in existing.get("check_runs", []) if c.get("name") == name), None)
-        if match:
-            return self.call(f"/repos/{self.repo}/check-runs/{match['id']}", "PATCH", body, expected=(200,))
-        return self.call(f"/repos/{self.repo}/check-runs", "POST", body, expected=(201,))
-
-
-# ----------------------------------------------------------------------------
-# PR 定位（确定性）
-# ----------------------------------------------------------------------------
-def locate_spec_pr(gh: Gh, spec_pr: int | None, report_target: str) -> tuple[int, str]:
-    """返回 (pr_number, head_sha)。优先 --spec-pr；否则按 target 路径匹配。"""
-    if spec_pr is not None:
-        return spec_pr, gh.get_pr_head_sha(spec_pr)
-
-    if not report_target:
-        die("无 --spec-pr 且报告无 target 路径，无法定位 spec PR")
-    target_norm = report_target.replace("\\", "/").lstrip("./")
-    best: tuple[int, str] | None = None
-    best_updated = ""
-    for pr in gh.list_open_prs():
-        changed = gh.pr_changed_files(pr["number"])
-        norm = [f.replace("\\", "/") for f in changed]
-        if any(target_norm in n or n in target_norm for n in norm):
-            updated = pr.get("updated_at", "")
-            if updated >= best_updated:  # 多匹配取最近 updated
-                best = (pr["number"], (pr.get("head") or {}).get("sha", ""))
-                best_updated = updated
-    if best is None:
-        die(f"未找到变更含 target={target_norm} 的 open PR（spec PR 必须存在以供 adversary check 写回）")
-    return best
-
-
-# ----------------------------------------------------------------------------
-# verdict → check run body
-# ----------------------------------------------------------------------------
-def build_check_body(report: dict, name: str = CHECK_RUN_NAME) -> dict:
-    verdict = report.get("verdict", "")
-    ts = report.get("ts") or now_iso()
-    target = report.get("target", "")
-    attempts = report.get("attempt_count", 0)
-    holes = report.get("holes", [])
-    exploited = report.get("exploited", [])
-
-    conclusion_map = {"survived": "success", "insufficient": "failure", "no-attempts": "neutral"}
-    conclusion = conclusion_map.get(verdict, "failure")  # fail-closed：未知 verdict = failure
-
-    verdict_cn = {"survived": "套件通过考验", "insufficient": "套件不充分（blocking）",
-                  "no-attempts": "零有效尝试（infra）"}.get(verdict, f"未知 verdict={verdict}")
-    title = f"adversary: {verdict} — {verdict_cn}"
-
-    hole_text = "; ".join(f"{h.get('strategy','')}→{h.get('suite_gap','')}" for h in holes) or "无"
+    # 摘要（Markdown）：verdict + 钻洞归因 + 尝试数
     summary_lines = [
-        f"verdict: {verdict}（{conclusion}）",
-        f"target: {target}",
-        f"攻击尝试: {attempts} 条；得手策略: {', '.join(exploited) or '无'}",
-        f"钻洞归因: {hole_text}",
-        f"schema: {report.get('schema','')}  ts: {ts}",
-        "check 写回经 App 令牌（INV-02：checks:write，单仓作用域，1h 过期）。",
+        f"**verdict: {verdict}** —— {'blocking' if blocking else '放行'}",
+        f"target: `{target}`",
+        f"attempts: {attempt_count}",
     ]
-    summary = "\n".join(summary_lines)
-    if len(summary) > MAX_OUTPUT_TEXT:
-        summary = summary[: MAX_OUTPUT_TEXT - 3] + "..."
-
-    text = json.dumps(report, ensure_ascii=False, indent=2)
-    if len(text) > MAX_OUTPUT_TEXT:
-        text = text[: MAX_OUTPUT_TEXT - 3] + "..."
+    if exploited:
+        summary_lines.append(f"exploited strategies: {', '.join(exploited)}")
+    if holes:
+        hole_strs = [f"{h.get('strategy', '?')}→{h.get('suite_gap', '?')}" for h in holes[:5]]
+        summary_lines.append("holes: " + "; ".join(hole_strs))
+    if verdict == "no-attempts":
+        summary_lines.append("_no-attempts：白卷/infra，不进入失败/锁卡分支（AC-15）_")
+    summary_lines.append(f"_spec PR #{pr_number} @ {repo}_")
 
     return {
-        "name": CHECK_RUN_NAME,
-        "head_sha": None,  # 由调用方填入
+        "name": "adversary",
+        "head_sha": None,  # 由调用方注入
         "status": "completed",
         "conclusion": conclusion,
+        "started_at": ts,
         "completed_at": now_iso(),
-        "output": {"title": title[:255], "summary": summary, "text": text},
+        "output": {
+            "title": f"adversary 红队审计：{verdict}",
+            "summary": "\n".join(summary_lines),
+        },
     }
 
 
-# ----------------------------------------------------------------------------
-# main
-# ----------------------------------------------------------------------------
-def main() -> None:
-    ap = argparse.ArgumentParser(prog="check_run_writeback.py",
-                                 description="红队 verdict 写回 spec PR check run（W4-C2 .github#283，INV-02/AC-4）")
-    ap.add_argument("--report", required=True, help="adversary 报告 JSON 路径（adversary-report/v1 schema）")
-    ap.add_argument("--spec-pr", type=int, default=None, help="spec PR 号（优先；缺省时按报告 target 路径匹配）")
-    ap.add_argument("--spec-repo", default="Cloudbird-Software/.github", help="spec PR 所在仓（令牌作用域）")
-    ap.add_argument("--name", default=CHECK_RUN_NAME, help=f"check run 名（缺省 {CHECK_RUN_NAME}）")
-    args = ap.parse_args()
+def create_check_run(repo: str, token: str, payload: dict, dry_run: bool) -> dict:
+    """POST /repos/{repo}/check-runs（checks:write）。"""
+    payload = dict(payload)
+    payload["head_sha"] = payload.pop("_head_sha")
+    if dry_run:
+        return {"dry_run": True, "payload": payload}
 
-    # 1) 读报告
+    if not token:
+        die(2, "GH_TOKEN 未设置（需要 checks:write 权限的 App 令牌）")
+
+    url = f"https://api.github.com/repos/{repo}/check-runs"
+    data = json.dumps(payload).encode("utf-8")
+    req = urllib.request.Request(
+        url,
+        data=data,
+        headers={
+            "Authorization": f"Bearer {token}",
+            "Accept": "application/vnd.github+json",
+            "Content-Type": "application/json",
+            "User-Agent": "cloudbrid-agent",
+        },
+        method="POST",
+    )
     try:
-        with open(args.report, encoding="utf-8") as f:
-            report = json.load(f)
-    except OSError as e:
-        die(f"读报告失败 {args.report}: {e}")
-    if report.get("schema") != "adversary-report/v1":
-        die(f"报告 schema 不匹配（期望 adversary-report/v1，实际 {report.get('schema')!r}）", rc=4)
+        with urllib.request.urlopen(req) as resp:
+            return json.loads(resp.read().decode("utf-8"))
+    except urllib.error.HTTPError as e:
+        body = e.read().decode("utf-8", errors="replace")
+        raise RuntimeError(f"创建 check run 失败 HTTP {e.code}: {body}") from e
 
-    check_name = args.name  # 局部别名，避免 global 与赋值顺序冲突
 
-    # 2) 令牌
-    token = get_app_token(args.spec_repo)
+def main(argv=None) -> int:
+    args = parse_args(argv)
 
-    # 3) 定位 spec PR
-    gh = Gh(token, args.spec_repo)
-    target = report.get("target", "")
-    pr_number, head_sha = locate_spec_pr(gh, args.spec_pr, target)
-    print(f"写回目标: {args.spec_repo}#{pr_number} @ {head_sha[:8]}", file=sys.stderr)
-
-    # 4) 构建并写回 check run
-    body = build_check_body(report, name=check_name)
-    body["head_sha"] = head_sha
+    # 1) 加载 + 校验报告
     try:
-        res = gh.upsert_check_run(head_sha, body, name=check_name)
+        report = load_report(args.report)
+    except ValueError as e:
+        die(3, f"报告加载失败（fail-closed）：{e}")
+
+    missing = validate_report(report)
+    if missing:
+        die(3, f"报告 schema 缺必填字段 {missing}（fail-closed：无有效 verdict 不放行）")
+
+    # 2) 构造 check run
+    payload = build_check_run(report, args.pr_number, args.repo)
+    payload["_head_sha"] = args.head_sha
+    if args.name != "adversary":
+        payload["name"] = args.name
+        payload["output"]["title"] = f"{args.name}：{report.get('verdict', 'missing')}"
+
+    # 3) 写回
+    try:
+        result = create_check_run(args.repo, args.gh_token, payload, args.dry_run)
     except RuntimeError as e:
-        die(f"写回 check run 失败: {e}", rc=3)
-    print(f"check run 写回成功: {res.get('html_url', '')}", file=sys.stderr)
-    print(json.dumps({"name": body["name"], "conclusion": body["conclusion"],
-                      "pr": pr_number, "repo": args.spec_repo,
-                      "html_url": res.get("html_url", "")}, ensure_ascii=False))
-    sys.exit(0)
+        die(2, f"check run 写回失败：{e}")
+
+    if result.get("dry_run"):
+        print(json.dumps(result["payload"], ensure_ascii=False, indent=2))
+        print("（dry-run：未实际创建 check run）", file=sys.stderr)
+    else:
+        cr_id = result.get("id", "?")
+        conclusion = result.get("conclusion", "?")
+        print(f"check run #{cr_id} created: conclusion={conclusion}")
+        print(json.dumps({"id": cr_id, "conclusion": conclusion, "verdict": report.get("verdict")}, ensure_ascii=False))
+
+    # 4) 退出码反映 verdict（供 workflow 步参考）
+    verdict = report.get("verdict")
+    if verdict == "insufficient":
+        return 1  # blocking
+    if verdict == "no-attempts":
+        return 3  # infra（恒绿防御语义由 workflow 层解释）
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())
