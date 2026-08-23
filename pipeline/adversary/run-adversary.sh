@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# run-adversary.sh —— 恶意合规 adversary CLI 入口（W4-C2 .github#221，ADR-0067）
+# run-adversary.sh —— 恶意合规 adversary CLI 入口（W4-C2 .github#221，ADR-0067；W3-C2 .github#278）
 #
 # 编排（各步皆 fail-closed）：配置锁校验 → prompt 组装 → LLM 调用 → 套件判定。
 # LLM 调用唯一入口 = pipeline/metering/metering-wrapper.sh（ADR-0062：一次
@@ -56,12 +56,14 @@ c = json.load(open(sys.argv[1], encoding="utf-8"))
 s = c.get("sampling") or {}
 for k, v in (("ADVMODEL", c.get("model")), ("ADVMAXTOK", s.get("max_tokens")),
              ("ADVTEMP", s.get("temperature")), ("ADVTOPP", s.get("top_p")),
-             ("ADVSEED", s.get("seed")), ("ADVTHINK", s.get("thinking"))):
+             ("ADVSEED", s.get("seed")), ("ADVTHINK", s.get("thinking")),
+             ("PROMPT_FILE", c.get("prompt_file"))):
     if v is not None:
         print(f"{k}={shlex.quote(str(v))}")
 PYEOF
 source "$TMPD/lock.env"
 [[ -n "${ADVMODEL:-}" ]] || { echo "锁定配置缺 model（不应发生——load_lock 已校验）" >&2; exit 2; }
+[[ -n "${PROMPT_FILE:-}" ]] || { echo "锁定配置缺 prompt_file（不应发生——load_lock 已校验）" >&2; exit 2; }
 
 # ---- 2) prompt 组装（spec+套件+策略表） ----
 "$PY" "$DIR/adversary.py" build-prompt --target "$TARGET" --out "$TMPD/user-prompt.md" >&2
@@ -72,7 +74,7 @@ if [[ -z "$REPLAY" && -z "${LLM_API_KEY:-}" ]]; then
   exit 2
 fi
 WRAP_ARGS=(--model "$ADVMODEL" --role adversary --tag malicious-compliance
-           --prompt-file "$TMPD/user-prompt.md" --system-file "$DIR/prompt-v1.md"
+           --prompt-file "$TMPD/user-prompt.md" --system-file "$DIR/$PROMPT_FILE"
            --max-tokens "${ADVMAXTOK:-4096}")
 [[ -n "${ADVTEMP:-}" ]] && WRAP_ARGS+=(--temperature "$ADVTEMP")
 [[ -n "${ADVTOPP:-}" ]] && WRAP_ARGS+=(--top-p "$ADVTOPP")

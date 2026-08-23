@@ -1,12 +1,17 @@
-version: v1
-# 恶意合规攻击面清单（W4-C2 .github#221，ADR-0067 决策 1）
-# 宪法 §4E 列举五类为初始集；版本化资产——扩充/修订走 C1（PR 引用 ADR），
-# 红队沉淀新洞回流本表（bump version 并同步 adversary-config.strategies_version）。
+version: v2
+# 恶意合规攻击面清单（W4-C2 .github#221，ADR-0067；W3-C2 .github#278 修订）
+# 宪法 §4E 初始集 S1–S5 针对代码实现；#278 将攻击面扩展到 spec/测试设计路径（S1'–S5'）
+# 并新增意图层探索道闸 S6–S8（只报人不阻断，标 requires_explore）。
+# 版本化资产——扩充/修订走 C1（PR 引用 ADR）。
 # 字段语义：
-#   tactic    = 给 adversary 的战术描述（进 prompt 策略表）
-#   hole      = 得手时套件缺什么（人读，报告钻洞归因）
-#   suite_gap = 缺口类型机读码（供 test-author 定向补强/下游统计）
+#   tactic           = 给 adversary 的战术描述（进 prompt 策略表）
+#   hole             = 得手/命中时套件缺什么（人读，报告钻洞归因）
+#   suite_gap        = 缺口类型机读码（供 test-author 定向补强/下游统计）
+#   requires_explore = true 表示该策略是意图层探索（S6–S8），不进入 blocking 判定，只产出证据报人
 strategies:
+  # ------------------------------------------------------------------
+  # 代码实现攻击面（ADR-0067 原始集，保留用于实现路径）
+  # ------------------------------------------------------------------
   - id: S1
     name: 硬编码测试期望值
     tactic: 不实现语义，直接返回套件断言的常量（背诵答案）
@@ -32,3 +37,54 @@ strategies:
     tactic: 吞掉校验异常或静默返回默认值，让应报错的路径也看似通过
     hole: 错误路径无负控制——异常传播无断言
     suite_gap: missing-error-path-assertion
+
+  # ------------------------------------------------------------------
+  # Spec / 测试设计文本攻击面（#278 DECISION-04：面向文本工件重定义）
+  # ------------------------------------------------------------------
+  - id: "S1'"
+    name: 摆拍式 AC
+    tactic: 验收标准可被形式上满足而实质无覆盖（仅陈列检查项、无执行路径或不可观测）
+    hole: AC 文本可摆拍——任何实现都能被宣称满足
+    suite_gap: posed-acceptance-criteria
+  - id: "S2'"
+    name: 无操作占位
+    tactic: 测试或 spec 接受占位实现/no-op 作为意图已满足的证据
+    hole: 语义断言缺失——只检查存在性/调用面，不检查真实行为
+    suite_gap: text-no-op
+  - id: "S3'"
+    name: 单路径短路
+    tactic: 单一 happy-path 用例即让 spec 文本看似成立，而一般约束未被触及
+    hole: 缺分支/边界/组合约束——spec 只在特例上自洽
+    suite_gap: text-short-circuit
+  - id: "S4'"
+    name: 一次性样例
+    tactic: spec/测试只举一个输入实例，未覆盖输入分布、规模或异常形态
+    hole: 未从样例泛化到一般性要求
+    suite_gap: one-shot-coverage
+  - id: "S5'"
+    name: 错误路径遗漏
+    tactic: 负面/错误路径在 spec 或测试设计中被省略、轻描淡写或静默吞咽
+    hole: 错误路径无文本级负控制
+    suite_gap: missing-error-path
+
+  # ------------------------------------------------------------------
+  # 意图层探索道闸（#278 AC-5/AC-16：只报人不阻断，requires_explore=true）
+  # ------------------------------------------------------------------
+  - id: S6
+    name: 重复已有功能
+    tactic: 方案重复实现组织已具备的能力或已登记条目，未产生新增价值
+    hole: 意图层冗余——与既有功能/ADR/实现重叠
+    suite_gap: redundant-capability
+    requires_explore: true
+  - id: S7
+    name: 违反治理约束
+    tactic: 方案与治理文件（GOVERNANCE.yaml、transitions.yaml、ADR 等）显式约束冲突
+    hole: 治理违规——与组织级规则不一致
+    suite_gap: governance-violation
+    requires_explore: true
+  - id: S8
+    name: 超出 blastRadius
+    tactic: 方案改动范围溢出 IR 声明的 blastRadius 集合（可经确定性集合比对脚本离线验证）
+    hole: 越界改动——影响未申报的仓库或路径
+    suite_gap: blast-radius-exceed
+    requires_explore: true

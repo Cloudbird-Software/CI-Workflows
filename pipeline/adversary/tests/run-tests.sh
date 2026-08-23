@@ -13,6 +13,7 @@
 #   T4 恒绿防御：空 attempts 白卷 → exit 3（infra），绝不让套件轻松过关
 #   T5 计量约定（ADR-0062）：LLM 调用走 metering wrapper——账本恰含
 #      role=adversary 记录（model/temperature/seed/exit_status 留痕）
+#   T6 攻击面清单（#278）：S6-S8 必须 requires_explore=true；S1'-S5' 与 S1-S5 不得标
 # 用法: bash pipeline/adversary/tests/run-tests.sh（CI job 与本地同路径）
 set -uo pipefail
 DIR="$(cd "$(dirname "$0")/.." && pwd)"
@@ -67,20 +68,21 @@ jcheck "T1 model/family 与 registry judge-deep 档一致（sovereign-family）"
   "d['model']=='glm-4.6' and d['family']=='sovereign-family'"
 jcheck "T1 采样参数锁定齐全（max_tokens/temperature/top_p/seed/thinking）" "$TMP/lock.json" \
   "set(d['sampling'])>={'max_tokens','temperature','top_p','seed','thinking'} and d['sampling']['temperature']==0.2 and d['sampling']['seed']==67"
-if "$PY" - "$TMP/lock.json" "$DIR/prompt-v1.md" <<'EOF'
+PROMPT_FILE=$("$PY" -c "import json,sys; print(json.load(open(sys.argv[1],encoding='utf-8'))['prompt_file'])" "$TMP/lock.json")
+if "$PY" - "$TMP/lock.json" "$DIR/$PROMPT_FILE" <<'EOF'
 import hashlib, json, sys
 lock = json.load(open(sys.argv[1], encoding="utf-8"))
 actual = "sha256:" + hashlib.sha256(open(sys.argv[2], "rb").read()).hexdigest()
 sys.exit(0 if lock["prompt_version"] == actual else 1)
 EOF
-then pass "T1 prompt_version 与 prompt-v1.md 实际 sha256 一致"; else fail "T1 prompt_version 与文件不一致（锁漂移）"; fi
+then pass "T1 prompt_version 与 $PROMPT_FILE 实际 sha256 一致"; else fail "T1 prompt_version 与文件不一致（锁漂移）"; fi
 jcheck "T1 跨族断言 ok（AR-8：≠flash-family≠flagship-family）" "$TMP/lock.json" \
   "d['cross_family']['ok'] and d['cross_family']['adversary'] not in (d['cross_family']['builder'],d['cross_family']['test_author'])"
 # 篡改负控制：prompt 文件漂移 → 配置锁必须红（fail-closed，考试档案不容漂移）
 TDIR="$TMP/tamper/pipeline"; mkdir -p "$TDIR"
 cp -r "$DIR" "$TDIR/adversary" && cp "$DIR/../models.yaml" "$TDIR/"
-printf '\n' >>"$TDIR/adversary/prompt-v1.md"
-run_rc "T1 篡改 prompt-v1.md 副本 → 配置锁红（exit 2）" 2 \
+printf '\n' >>"$TDIR/adversary/$PROMPT_FILE"
+run_rc "T1 篡改 $PROMPT_FILE 副本 → 配置锁红（exit 2）" 2 \
   "$PY" "$TDIR/adversary/adversary.py" config
 
 # ---- T2 弱套件 e2e（AC-1：退化实现全绿 → 套件不充分 blocking） ----
@@ -143,9 +145,24 @@ sys.exit(0)
 " "$LEDGERS" && pass "T5 role=adversary 记录：model/temperature/seed/prompt_version 留痕" \
   || fail "T5 计量记录断言不成立（见上）"
 
+# ---- T6 攻击面清单 requires_explore 语义（#278 AC-16） ----
+"$PY" - "$DIR/attack-strategies.yaml" <<'EOF'
+import sys, yaml
+doc = yaml.safe_load(open(sys.argv[1], encoding='utf-8'))
+st = {s['id']: s for s in doc.get('strategies', [])}
+for sid in ('S6', 'S7', 'S8'):
+    assert sid in st, f"缺 {sid}"
+    assert st[sid].get('requires_explore') is True, f"{sid} requires_explore 应为 true"
+for sid in ("S1'", "S2'", "S3'", "S4'", "S5'", 'S1', 'S2', 'S3', 'S4', 'S5'):
+    assert sid in st, f"缺 {sid}"
+    assert not st[sid].get('requires_explore'), f"{sid} 不得设置 requires_explore"
+print("T6 攻击面清单 requires_explore 语义正确")
+EOF
+if [[ $? -eq 0 ]]; then pass "T6 S6-S8 requires_explore=true 且 S1'-S5'/S1-S5 不标"; else fail "T6 requires_explore 语义错误"; fi
+
 echo "-----"
 if [[ $FAILS -eq 0 ]]; then
-  echo "adversary 自测全部通过（T0-T5）"
+  echo "adversary 自测全部通过（T0-T6）"
   exit 0
 fi
 echo "adversary 自测失败 $FAILS 项"

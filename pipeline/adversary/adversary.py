@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""adversary.py —— 恶意合规 adversary 核心（W4-C2 .github#221，ADR-0067）
+"""adversary.py —— 恶意合规 adversary 核心（W4-C2 .github#221，ADR-0067；W3-C2 .github#278）
 
 宪法 §4E 测试红队的机内实现：输入 spec + 完整验收套件，让 judge-deep 档模型
 （配置锁定，AR-8 跨族分离）产出"通过全部测试的最偷懒实现"；产物在套件上
@@ -8,6 +8,9 @@
 套件缺口映射，供 test-author 定向补强）；攻击失败 → 套件通过考验（exit 0），
 但报告必须含 ≥1 条真实攻击尝试——空输出/不可解析 = exit 3（恒绿防御：
 adversary 假装攻击失败交白卷，让每个套件轻松过关）。
+
+#278 扩展：攻击面清单新增 S1'–S5'（spec/测试设计文本攻击）与 S6–S8（意图层
+探索道闸，只报人不阻断，标 requires_explore）。
 
 本模块不做网络调用（LLM 编排在 run-adversary.sh，唯一入口 = 计量 wrapper，
 ADR-0062）——只做确定性部分：配置锁校验、prompt 组装、应答解析、套件执行、
@@ -18,8 +21,9 @@ ADR-0062）——只做确定性部分：配置锁校验、prompt 组装、应�
   suite/        验收套件测试文件集（全文进 prompt，至少 1 个文件）
   run-suite.sh  套件执行器：bash run-suite.sh <impl-dir>；exit 0=全绿
 
-adversary 应答契约（prompt-v1.md 第 5 条）：单个 JSON 对象
-  {"attempts":[{"strategy":"S1","rationale":"...","files":{"<文件名>":"<内容>"}}]}
+adversary 应答契约（prompt-v2.md）：单个 JSON 对象
+  {"attempts":[{"strategy":"S1'","rationale":"...","files":{"<文件名>":"<内容>"}}],
+   "explorations":[{"strategy":"S6","rationale":"...","hit":false,"evidence":[]}]}
 
 安全语义：adversary 产物是故意生成的不可信代码，judge 子命令会真实执行它
 （套件执行是判定本体，不可 Mock）——只允许在一次性 CI runner / 专用沙箱跑
@@ -97,7 +101,8 @@ def load_lock():
     - prompt 文件 sha256 必须与配置声明一致（prompt 改动=版本变更，须同步配置）
     - 攻击面清单版本与配置声明一致
     - 族分离断言（AR-8）：adversary 族 ≠ builder 族 ≠ test-author 族
-    - 与 pipeline/models.yaml judge-deep 角色档交叉断言（model/temperature/max_tokens）"""
+    - 与 pipeline/models.yaml judge-deep 角色档交叉断言（model/temperature/max_tokens）
+    - #278 自检：S6-S8 requires_explore=true；S1'-S5' 与 S1-S5 不得标"""
     cfg = load_yaml(CONFIG_PATH) or {}
     st = load_yaml(STRATEGIES_PATH) or {}
     adv = cfg.get("adversary") or {}
@@ -123,6 +128,16 @@ def load_lock():
         for k in ("id", "name", "tactic", "hole", "suite_gap"):
             if not s.get(k):
                 errs.append(f"策略 {s.get('id')!r} 缺字段 {k}")
+        if "requires_explore" in s and not isinstance(s["requires_explore"], bool):
+            errs.append(f"策略 {s.get('id')!r} requires_explore 必须是布尔值")
+    # #278 自检：S6-S8 必须标 requires_explore；S1'-S5' 与 S1-S5 不得标
+    stmap = {s["id"]: s for s in strategies}
+    for sid in ("S6", "S7", "S8"):
+        if stmap.get(sid, {}).get("requires_explore") is not True:
+            errs.append(f"意图道闸 {sid} 必须设置 requires_explore=true（AC-16）")
+    for sid in ("S1", "S2", "S3", "S4", "S5", "S1'", "S2'", "S3'", "S4'", "S5'"):
+        if stmap.get(sid, {}).get("requires_explore"):
+            errs.append(f"攻击策略 {sid} 不得设置 requires_explore（仅 S6-S8 为探索道闸）")
     fam = adv.get("family")
     bf = (xf.get("builder") or {}).get("family")
     tf = (xf.get("test_author") or {}).get("family")
@@ -190,8 +205,9 @@ def check_target(target):
 def cmd_build_prompt(a):
     lock = load_lock()
     spec, suite_dir, files = check_target(a.target)
-    parts = ["【任务】对下面的验收套件做恶意合规攻击（宪法 §4E 测试红队 / ADR-0067）：",
-             "产出\"通过全部测试的最偷懒实现\"——形式满足每条检查，实质背叛 spec 意图。", ""]
+    parts = ["【任务】对下面的验收套件与 spec 文本做恶意合规攻击（宪法 §4E 测试红队 / ADR-0067 / #278）：",
+             "产出\"通过全部测试的最偷懒实现\"——形式满足每条检查，实质背叛 spec 意图；",
+             "并执行意图层探索道闸 S6-S8（只报人不阻断）。", ""]
     parts.append("【SPEC】")
     with open(spec, encoding="utf-8") as f:
         parts.append(f.read().strip())
@@ -201,16 +217,21 @@ def cmd_build_prompt(a):
         with open(os.path.join(suite_dir, fn), encoding="utf-8") as f:
             parts.append(f"### suite/{fn}\n-----\n{f.read().rstrip()}\n-----")
     parts.append("")
-    parts.append("【攻击面策略表】（只许用表内策略；每次尝试标注 strategy id；得手时表中\"洞\"即套件缺口归因）")
-    parts.append("| id | 策略 | 战术 | 得手说明明的洞（suite_gap） |")
-    parts.append("|---|---|---|---|")
+    parts.append("【攻击面策略表】（只许用表内策略；S1'-S5' 用于 spec/测试设计文本攻击，S6-S8 为意图探索；"
+                 "得手时表中\"洞\"即套件缺口归因；explore=是 表示只报人不阻断）")
+    parts.append("| id | 策略 | 战术 | 得手说明的洞（suite_gap） | explore |")
+    parts.append("|---|---|---|---|---|")
     for s in lock["strategies"]:
-        parts.append(f"| {s['id']} | {s['name']} | {s['tactic']} | {s['hole']}（{s['suite_gap']}） |")
+        explore_mark = "是" if s.get("requires_explore") else ""
+        parts.append(f"| {s['id']} | {s['name']} | {s['tactic']} | {s['hole']}（{s['suite_gap']}） | {explore_mark} |")
     parts.append("")
-    parts.append(f"【输出契约】只输出一个 JSON 对象（无围栏无其他文字）；尝试数上限 {lock['adv'].get('max_attempts', 8)}：")
+    parts.append(f"【输出契约】只输出一个 JSON 对象（无围栏无其他文字）；S1'-S5' 尝试数上限 {lock['adv'].get('max_attempts', 8)}：")
     parts.append('{"attempts":[{"strategy":"<表内 id>","rationale":"≤120 字攻击思路",'
-                 '"files":{"<文件名>":"<完整可运行文件内容>"}}]}')
+                 '"files":{"<文件名>":"<完整可运行文件内容>"}}],'
+                 '"explorations":[{"strategy":"S6|S7|S8","rationale":"...","hit":false,"evidence":[]},'
+                 '{"strategy":"S6|S7|S8","rationale":"...","hit":true,"evidence":[{"file":"...","line":1,"exact_string":"..."}]}]}')
     parts.append("- files 文件名只许 [A-Za-z0-9._-]（禁路径），模块名须与套件 import 一致")
+    parts.append("- S6-S8 evidence 必须含 file:line 与 exact_string，否则机械核对作废")
     parts.append("- 全部失败是正常结论（强套件本该防住），但必须留下真实尝试——空输出=基础设施故障")
     with open(a.out, "w", encoding="utf-8", newline="\n") as f:
         f.write("\n".join(parts) + "\n")
@@ -266,7 +287,7 @@ def cmd_judge(a):
     try:
         doc = extract_json(text)
         if not isinstance(doc, dict) or not isinstance(doc.get("attempts"), list):
-            parse_errors.append("应答缺 attempts 数组（契约见 prompt-v1.md 第 5 条）")
+            parse_errors.append("应答缺 attempts 数组（契约见 prompt-v2.md）")
         else:
             attempts = doc["attempts"]
             if not attempts:
