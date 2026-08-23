@@ -62,7 +62,7 @@ jobs:
       - name: 攻击（judge-deep 锁定 + 计量 wrapper，ADR-0067/0062）
         env:
           LLM_API_KEY: ${{ secrets.LLM_API_KEY1 }}
-          LLM_ENDPOINT: ${{ vars.LLM_ENDPOINT1 }}
+          LLM_BASE_URL: https://api.longcat.chat/openai/v1
           LLM_MODEL: ${{ vars.MODEL1 }}
           ADV_TARGET: ${{ inputs.target }}
           ADV_REPLAY: ${{ inputs.replay_file }}
