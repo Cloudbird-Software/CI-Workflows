@@ -1,0 +1,41 @@
+{
+  "schema": "intent-backstop/hit/v1",
+  "ts": "2026-08-23T06:24:33Z",
+  "card": "ISSUE-263",
+  "strategies_run": ["S6", "S7", "S8"],
+  "hit_count": 3,
+  "hits": [
+    {
+      "strategy": "S6",
+      "name": "重复已有功能",
+      "capability": "AG-1-identity",
+      "capability_file": "archive/adr/ADR-0076-agent-identity.md",
+      "capability_line": 1,
+      "evidence": [
+        {"file": "specs/ISSUE-263/spec.md", "line": 89, "snippet": "新设验证者专用 GitHub App"}
+      ],
+      "note": "专用 APP 与 AG-1 修订 ADR 中已规划的验证者身份重复，须在 AG-1 修订合并后实施"
+    },
+    {
+      "strategy": "S7",
+      "name": "违反治理约束",
+      "pattern": "每.*PR.*红队审计",
+      "evidence": [
+        {"file": "specs/ISSUE-263/spec.md", "line": 156, "snippet": "红队守门流程覆盖意图→spec→测试设计路径，该路径每个 PR 都必须经红队审计"}
+      ],
+      "note": "要求每 PR 走红队审计与 ADR-0067 频率/AC-14 开发路径豁免冲突"
+    },
+    {
+      "strategy": "S8",
+      "name": "blastRadius 集合失真",
+      "missing": ["archive"],
+      "extra": [],
+      "declared": [".github", "CI-Workflows", "template-service"],
+      "expected": [".github", "archive", "CI-Workflows", "template-service"],
+      "evidence": [
+        {"file": "specs/ISSUE-263/spec.md", "line": 96, "snippet": "blastRadius:\n- repo: .github\n- repo: CI-Workflows\n- repo: template-service"}
+      ],
+      "note": "正文引用 holdout/DECISION-02 需 archive 仓参与，但 blastRadius 未声明 archive"
+    }
+  ]
+}
