@@ -105,14 +105,10 @@ def blind_sample(sample: dict, rng_seed: int) -> dict:
     """剥离样本的来源元数据，返回盲化副本。
 
     保留评分所需的核心字段（report 引用、expected_verdict），移除一切可能
-    让判定脚本"认得"该样本的来源标识。
+    让判定脚本"认得"该样本的来源标识（id、tags、source、metadata 等）。
+    report 文件路径保持不变——盲化仅作用于 sample 层级元数据，不创建新文件。
     """
     blinded = {k: v for k, v in sample.items() if k not in _BLIND_FIELDS}
-    # 用随机后缀重命名 report 字段（防按路径特判）
-    if "report" in blinded:
-        orig = blinded["report"]
-        base, ext = os.path.splitext(orig)
-        blinded["report"] = f"{base}_blinded{ext}"
     return blinded
 
 
@@ -276,6 +272,7 @@ def verify_calibration(criteria_path: str, calibrate_record: dict | None) -> tup
     """校验当前 criteria 的 SHA 与标定记录一致。
 
     返回 (consistent, reason)。
+    """
     if calibrate_record is None:
         return False, "无标定记录（criteria 必须先经 calibrate.py 标定）"
     criteria_sha = sha256_file(criteria_path)
@@ -305,9 +302,9 @@ def self_test(golden_dir: str) -> int:
     blinded = blind_inject(golden_dir, samples)
     print(f"  盲化注入 {len(blinded)} 个样本（含副本）OK")
 
-    # 构造最小 criteria 做重放
+    # 构造最小 criteria 做重放（AC 编号与 fixture 报告中的 criterion_scores 键一致）
     criteria = {"card": "self-test", "defaults": {"threshold": 0.7},
-                "criteria": [{"id": "AC-test", "threshold": 0.7}]}
+                "criteria": [{"id": "AC-1", "threshold": 0.7}, {"id": "AC-9", "threshold": 0.7}]}
     try:
         report = replay_all(golden_dir, criteria, None, blind=True)
         print(f"  全量重放 verdict={report['verdict']} failures={report['failure_count']} OK")
