@@ -1,0 +1,14 @@
+{
+  "id": "golden-nonrandom-lowscore",
+  "source": "handcrafted/AC-8-non-random",
+  "type": "known-bad",
+  "expected_verdict": "insufficient",
+  "note": "非 golden 的随机低分样本（反向特判对照）：故意用不连续的小数（非全零、非边界）验证 gate 不针对特定数值特判。构造独立于判定脚本。",
+  "criteria_scores": [
+    {"id": "adhoc-a", "aggregated": 0.31, "threshold": 0.7, "scores": [0.31, 0.31, 0.31]},
+    {"id": "adhoc-b", "aggregated": 0.47, "threshold": 0.7, "scores": [0.47, 0.47, 0.47]},
+    {"id": "adhoc-c", "aggregated": 0.12, "threshold": 0.7, "scores": [0.12, 0.12, 0.12]}
+  ],
+  "token_account_ok": true,
+  "threshold_global": 0.7
+}

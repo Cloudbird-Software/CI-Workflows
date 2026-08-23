@@ -1,0 +1,16 @@
+{
+  "schema": "golden-calibration/v1",
+  "calibrated_at": "2026-08-23T09:23:55Z",
+  "run_id": "2026-08-23T09:23:55Z",
+  "criteria_file": "D:\\Projects\\temp2\\w5-c3\\CI-Workflows\\pipeline\\adversary\\criteria\\ISSUE-263\\card-w3-c3.yaml",
+  "criteria_sha256": "sha256:3e02b2ed30b1fe1ce69c4022f64f6bffef1a613e63c8f8a5220dd5968dd0ec4a",
+  "golden_version": "sha256:5b5c4d5eb965b0731c350ad84930c9bf467c43f10596708185c1a45023481ea7",
+  "golden_samples_dir": "D:\\Projects\\temp2\\w5-c1\\CI-Workflows\\pipeline\\adversary\\fixtures\\golden\\samples",
+  "regress": {
+    "mode": "native",
+    "total": 4,
+    "passed": 4,
+    "failed": 0,
+    "regress_ok": true
+  }
+}
