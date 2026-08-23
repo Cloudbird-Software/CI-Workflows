@@ -1,0 +1,21 @@
+{
+  "id": "mock-adversary-response",
+  "object": "chat.completion",
+  "created": 1724000000,
+  "model": "LongCat-2.0",
+  "choices": [
+    {
+      "index": 0,
+      "message": {
+        "role": "assistant",
+        "content": "// Mock adversary response for e2e testing\n// This is a deliberately bad implementation that should fail tests\ndef calculate(x, y):\n    return 0  # Wrong: always returns 0"
+      },
+      "finish_reason": "stop"
+    }
+  ],
+  "usage": {
+    "prompt_tokens": 100,
+    "completion_tokens": 50,
+    "total_tokens": 150
+  }
+}
