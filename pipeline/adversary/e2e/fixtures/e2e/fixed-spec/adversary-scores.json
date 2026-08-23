@@ -1,0 +1,24 @@
+{
+  "schema": "adversary-audit-input/v1",
+  "card_id": "Cloudbird-Software/.github#287",
+  "spec_version": 100,
+  "spec_path": "fixtures/e2e/fixed-spec",
+  "audit_run_id": "e2e-local-run-good-001",
+  "generated_at": "2026-08-23T11:06:29Z",
+  "note": "修复后 spec 的审计评分输入：全部 criterion 聚合分 >= 阈值 0.7。回应 Veto 理由（deliberately-bad-spec/adversary-scores.json 逐 criterion 理由均有对应修复）。预期 verdict = survived。",
+  "criteria_scores": [
+    {"id": "ac-traceability", "aggregated": 0.92, "threshold": 0.7, "scores": [0.92, 0.91, 0.93],
+     "note": "已修复：spec.md 声明 lock-pin/ac-traceability/ir-fidelity + 阈值 + 连续分来源"},
+    {"id": "ir-fidelity", "aggregated": 0.88, "threshold": 0.7, "scores": [0.88, 0.87, 0.89],
+     "note": "已修复：#263 blastRadius/AC 机器可查映射还原"},
+    {"id": "anti-camouflage", "aggregated": 0.85, "threshold": 0.7, "scores": [0.85, 0.86, 0.84],
+     "note": "已修复：golden 回归 + 配置面校验 + 凭据形状扫描已声明"},
+    {"id": "blast-radius", "aggregated": 0.90, "threshold": 0.7, "scores": [0.90, 0.90, 0.90],
+     "note": "已修复：受保护路径 specs/** + pipeline/adversary/** 已声明"},
+    {"id": "suite-strength", "aggregated": 0.87, "threshold": 0.7, "scores": [0.87, 0.88, 0.86],
+     "note": "已修复：suite 含真实 AC 语义测试（test_ac_traceability.py）"}
+  ],
+  "token_account_ok": true,
+  "threshold_global": 0.7,
+  "expected_verdict": "survived"
+}

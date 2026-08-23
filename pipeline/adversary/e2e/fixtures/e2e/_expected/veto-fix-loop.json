@@ -1,0 +1,38 @@
+{
+  "schema": "veto-fix-loop/v1",
+  "description": "Veto 理由 ↔ 修复 diff 机械闭环映射（W5-C2 AC-20：Veto 理由与修复 diff 经机械核对证明修复确实回应了该理由）。match_rule 为纯 AND/OR/NOT 字面量表达式，对修复后 spec.md 做子串级机械匹配。",
+  "veto_source": "fixtures/e2e/deliberately-bad-spec/adversary-scores.json",
+  "fix_target": "fixtures/e2e/fixed-spec/spec.md",
+  "loop": [
+    {
+      "veto_criterion": "ac-traceability",
+      "veto_reason": "AC 无 criteria 分解 / 无溯源到 spec.md 具体行",
+      "fix_evidence": "fixed-spec/spec.md 含 lock-pin / ac-traceability / ir-fidelity 三 criterion",
+      "match_rule": "lock-pin AND ac-traceability AND ir-fidelity"
+    },
+    {
+      "veto_criterion": "ir-fidelity",
+      "veto_reason": "IR 保真度丢失：spec 与 #263 blastRadius/AC 无机器可查映射",
+      "fix_evidence": "fixed-spec/spec.md 引用 #263 blastRadius/AC",
+      "match_rule": "#263 AND blastRadius AND AC"
+    },
+    {
+      "veto_criterion": "anti-camouflage",
+      "veto_reason": "反摆拍断言缺失：golden 回归 / 配置面校验 / 凭据形状扫描均未定义",
+      "fix_evidence": "fixed-spec/spec.md 声明 golden 回归 + 配置面约束",
+      "match_rule": "golden AND org secret"
+    },
+    {
+      "veto_criterion": "blast-radius",
+      "veto_reason": "blastRadius 结构失真：未声明受保护路径集",
+      "fix_evidence": "fixed-spec/spec.md 声明 specs/** 受保护路径",
+      "match_rule": "blastRadius AND specs/**"
+    },
+    {
+      "veto_criterion": "suite-strength",
+      "veto_reason": "套件不充分：占位测试恒真，未验证任何 AC 语义",
+      "fix_evidence": "fixed-spec/suite/test_ac_traceability.py 含真实 AC 语义断言",
+      "match_rule": "spec.md AND assert AND 验收标准"
+    }
+  ]
+}
