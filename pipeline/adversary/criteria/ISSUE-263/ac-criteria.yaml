@@ -1,0 +1,25 @@
+# ISSUE-263 criteria 示例（W3-C3 .github#279，ADR-0072）
+# 一卡一文件，机器可追溯到对应卡的 AC 列表。
+# 阈值 gate 与逐 criterion 连续分由 llm_verifier.py 执行。
+card_id: ISSUE-263
+criteria_file_version: v1
+title: "ISSUE-263 卡绑定测试与红队守门制度 — 默认 verifier 范式"
+# 综合阈值 gate：任一 criterion 最低分 < threshold → verdict insufficient
+threshold: 0.6
+criteria:
+  - id: AC-1
+    ac_ref: "AC-1 (default verifier paradigm)"
+    weight: 1.0
+    description: "LLM 参与判定环节采用开源 LLM-as-a-Verifier 实践（绝对细粒度 reward、criteria 分解、K 次重复评估、阈值 gate），输出结构化连续分；criteria 文件一卡一份且机器可追溯到对应卡的 AC 列表"
+  - id: AC-2
+    ac_ref: "AC-2 (evidence verification)"
+    weight: 1.0
+    description: "红队 pipeline 判定环节使用 llm-verifier 连续分 + 阈值产出 verdict；报告中的每条证据引用由代码对运行时刻真实工件做字符串级机械核对；任一引用被核对作废时该报告 verdict 强制转 insufficient"
+  - id: AC-10
+    ac_ref: "AC-10 (endpoint three-probe)"
+    weight: 1.0
+    description: "每次 verifier run 前探测 endpoint（logprobs 有无、top_logprobs 上限、prefill/structured_outputs 支持），结果决定打分抽取路径与精度预期并写入报告；不满足最低要求的 endpoint 配置即失败（fail-closed）"
+  - id: AC-11
+    ac_ref: "AC-11 (token cross-check)"
+    weight: 1.0
+    description: "verifier token 成本持久化挂接 ADR-0062 计量 wrapper；与 LLM 响应 usage 字段交叉核对，偏差超阈值时该 run 判定作废并转人工（非仅告警）"

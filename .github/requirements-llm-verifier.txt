@@ -1,0 +1,4 @@
+# W3-C3 llm-verifier 依赖钉点（ISSUE-263 / .github#279，ADR-0072）
+# 安装：pip install -r .github/requirements-llm-verifier.txt
+# 校验：pip install pip-audit && pip-audit -r .github/requirements-llm-verifier.txt
+pyyaml==6.0.3 --hash=sha256:ba1cc08a7ccde2d2ec775841541641e4548226580ab850948cbfda66a1befcdc
