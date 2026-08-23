@@ -1,0 +1,10 @@
+{
+  "schema": "verifier-report/v1",
+  "id": "known-fail-schema",
+  "verdict": "insufficient",
+  "expected_verdict": "insufficient",
+  "citations": [],
+  "criterion_scores": {},
+  "ts": "2026-08-22T00:00:00Z",
+  "note": "已知不合格样本：缺逐 criterion 连续分（AC-15 白卷/不合 schema 按失败处理）"
+}

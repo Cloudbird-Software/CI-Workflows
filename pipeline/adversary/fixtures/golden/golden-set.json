@@ -1,0 +1,45 @@
+{
+  "schema": "golden-set/v1",
+  "version": "1",
+  "description": "W5-C1 golden set：含已知不合格样本（构造独立于判定脚本）+ 盲化注入测试集。不合格样本由历史 verdict 标定，不引用 llm_verifier.py 或 evidence_check.py 逻辑。",
+  "source": "Cloudbird-Software/.github#286",
+  "spec_ref": "specs/ISSUE-263/spec.md",
+  "spec_version": 5,
+  "samples": [
+    {
+      "id": "known-fail-gate-threshold",
+      "report": "report-known-fail.json",
+      "expected_verdict": "insufficient",
+      "tags": ["known-fail", "gate-threshold"],
+      "source": "人工标定：连续分低于阈值"
+    },
+    {
+      "id": "known-fail-evidence-void",
+      "report": "report-evidence-void.json",
+      "expected_verdict": "insufficient",
+      "tags": ["known-fail", "evidence-void"],
+      "source": "AC-9 机械核对作废样本"
+    },
+    {
+      "id": "known-fail-schema",
+      "report": "report-schema-invalid.json",
+      "expected_verdict": "insufficient",
+      "tags": ["known-fail", "schema-invalid"],
+      "source": "AC-15 空报告/不合 schema"
+    },
+    {
+      "id": "anti-spoof-random-low",
+      "report": "report-random-low.json",
+      "expected_verdict": "insufficient",
+      "tags": ["anti-spoof", "random-low-score"],
+      "source": "非 golden 随机低分样本（反特判）"
+    },
+    {
+      "id": "valid-baseline",
+      "report": "report-valid.json",
+      "expected_verdict": "survived",
+      "tags": ["valid", "baseline"],
+      "source": "历史 survived 审计记录"
+    }
+  ]
+}

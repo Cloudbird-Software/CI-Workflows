@@ -1,0 +1,25 @@
+{
+  "schema": "verifier-report/v1",
+  "id": "known-fail-gate-threshold",
+  "verdict": "insufficient",
+  "expected_verdict": "insufficient",
+  "citations": [],
+  "criterion_scores": {
+    "AC-1": 0.45,
+    "AC-2": 0.52,
+    "AC-7": 0.38,
+    "AC-8": 0.41,
+    "AC-9": 0.55,
+    "AC-10": 0.49,
+    "AC-11": 0.44,
+    "AC-12": 0.50,
+    "AC-14": 0.47,
+    "AC-15": 0.53,
+    "AC-17": 0.42,
+    "AC-18": 0.46,
+    "AC-19": 0.51,
+    "AC-20": 0.48
+  },
+  "ts": "2026-08-22T00:00:00Z",
+  "note": "已知不合格样本：连续分全面低于默认阈值 0.7（人工标定，独立于判定脚本）"
+}
