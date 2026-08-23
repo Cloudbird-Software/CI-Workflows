@@ -1,0 +1,15 @@
+{
+  "schema": "adversary-report/v1",
+  "ts": "2026-08-23T08:00:00Z",
+  "target": "/work/specs/ISSUE-263",
+  "verdict": "no-attempts",
+  "blocking": false,
+  "config": {"alias": "judge-deep", "model": "glm-4.6", "family": "sovereign-family",
+             "prompt_version": "sha256:3cb56e83aeed2307d05b31e9c944408b2571e7e727484739c665e1165adafbb0",
+             "strategies_version": "v2", "cross_family": {"ok": true}},
+  "attempt_count": 0,
+  "attempts": [],
+  "exploited": [],
+  "holes": [],
+  "parse_errors": ["empty content"]
+}
