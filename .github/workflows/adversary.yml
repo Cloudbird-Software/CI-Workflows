@@ -68,6 +68,8 @@ jobs:
           ADV_TARGET: ${{ inputs.target }}
           ADV_REPLAY: ${{ inputs.replay_file }}
           ADVTHINK: ""
+          ADVTEMP: ""
+          ADVTOPP: ""
         run: |
           args=(--target "$ADV_TARGET" --report-out "$RUNNER_TEMP/adversary-report.json")
           if [[ -n "$ADV_REPLAY" ]]; then
