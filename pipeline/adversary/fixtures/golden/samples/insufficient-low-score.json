@@ -1,0 +1,33 @@
+{
+  "schema": "llm-verifier-report/v1",
+  "run_id": "golden-known-bad-001",
+  "ts": "2026-08-23T00:00:00Z",
+  "card_id": "ISSUE-263",
+  "issue": "Cloudbird-Software/.github#263",
+  "spec_path": "specs/ISSUE-263/spec.md",
+  "criteria_file": "pipeline/adversary/criteria/ISSUE-263/criteria-verifier-integration.yaml",
+  "criteria_sha256": "sha256:placeholder",
+  "baseline_sha": "sha56:placeholder",
+  "probe": {
+    "logprobs": true,
+    "top_logprobs_limit": 5,
+    "top_logprobs_supported": true,
+    "structured_outputs": true,
+    "prefill": true,
+    "precision_note": "",
+    "detail": {}
+  },
+  "k": 3,
+  "pivots": 1,
+  "criteria_scores": [
+    {"id": "AC-1", "scores": [0.2, 0.25, 0.2], "aggregated": 0.216667, "reasons": ["仅声明已写入，无实际调用记录"], "threshold": 0.7},
+    {"id": "AC-7", "scores": [0.15, 0.2, 0.15], "aggregated": 0.166667, "reasons": ["日志由 verifier 自报，无独立采集组件"], "threshold": 0.7},
+    {"id": "AC-10", "scores": [0.3, 0.25, 0.3], "aggregated": 0.283333, "reasons": ["探测结果未写入报告，探测失败未 fail-closed"], "threshold": 0.75},
+    {"id": "AC-11", "scores": [0.2, 0.2, 0.2], "aggregated": 0.2, "reasons": ["token 账未与 metering 交叉核对"], "threshold": 0.7}
+  ],
+  "threshold_global": 0.7,
+  "verdict": "insufficient",
+  "blocking": true,
+  "token_account": {"ok": true, "ledger_dir": ".metering"},
+  "ledger_dir": ".metering"
+}

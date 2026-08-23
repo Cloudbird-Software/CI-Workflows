@@ -1,0 +1,33 @@
+{
+  "schema": "llm-verifier-report/v1",
+  "run_id": "golden-known-good-001",
+  "ts": "2026-08-23T00:00:00Z",
+  "card_id": "ISSUE-263",
+  "issue": "Cloudbird-Software/.github#263",
+  "spec_path": "specs/ISSUE-263/spec.md",
+  "criteria_file": "pipeline/adversary/criteria/ISSUE-263/criteria-verifier-integration.yaml",
+  "criteria_sha256": "sha256:placeholder",
+  "baseline_sha": "sha56:placeholder",
+  "probe": {
+    "logprobs": true,
+    "top_logprobs_limit": 5,
+    "top_logprobs_supported": true,
+    "structured_outputs": true,
+    "prefill": true,
+    "precision_note": "",
+    "detail": {}
+  },
+  "k": 3,
+  "pivots": 1,
+  "criteria_scores": [
+    {"id": "AC-1", "scores": [0.85, 0.9, 0.88], "aggregated": 0.876667, "reasons": ["CI 日志含 llm-verifier 实际调用记录与逐 criterion 连续分"], "threshold": 0.7},
+    {"id": "AC-7", "scores": [0.9, 0.88, 0.92], "aggregated": 0.9, "reasons": ["独立采集组件写入调用记录与 token 消耗"], "threshold": 0.7},
+    {"id": "AC-10", "scores": [0.88, 0.85, 0.9], "aggregated": 0.876667, "reasons": ["三探测在每次 run 前执行并写入报告"], "threshold": 0.75},
+    {"id": "AC-11", "scores": [0.82, 0.85, 0.83], "aggregated": 0.833333, "reasons": ["token 账与 metering 交叉核对在阈值内"], "threshold": 0.7}
+  ],
+  "threshold_global": 0.7,
+  "verdict": "survived",
+  "blocking": false,
+  "token_account": {"ok": true, "ledger_dir": ".metering"},
+  "ledger_dir": ".metering"
+}

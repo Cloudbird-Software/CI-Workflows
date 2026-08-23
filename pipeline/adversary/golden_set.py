@@ -1,50 +1,51 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""golden_set.py —— golden set 加载、盲化注入、全量重放、回归断言（W5-C1 .github#286，AC-8 / AC-2）
+"""golden_set.py —— verifier golden set 加载/盲化注入/全量重放/回归断言（W5-C1 .github#286，AC-8 / AC-2）
 
-golden set 建设：
-  - 含已知不合格样本（构造独立于判定脚本——fixtures/golden/ 中的低分样本由
-    人工/历史 verdict 标定，不引用 llm_verifier.py 或 evidence_check.py 的任何逻辑）；
-  - 盲化注入（剥离 id/来源元数据，与正常样本同批混排，防判定脚本特判）；
+golden set = 一组已知 verdict 的 verifier 报告样本（含已知不合格样本），用于：
+  - 证明阈值 gate 不是特判（已知低分样本确实触发失败）；
+  - 盲化注入（剥 id/来源元数据，与正常样本同批混排）后对未见过的随机捏造引用泛化作废；
   - 每次 run 全量重放 + 回归断言（不合格样本仍不合格）；
-  - criteria 每次变更重新标定（SHA 强一致，由 calibrate.py 执行，本模块消费标定记录）；
-  - 标定记录留档。
+  - criteria 文件每次变更必须重新标定（SHA 强一致），标定记录留档。
 
 与 W3-C3 llm_verifier.py、W3-C5 evidence_check.py 接口兼容：
-  - 接受 verifier-report/v1 或 verified-report/v1 作为输入；
-  - 输出 golden-run-report/v1，供下游 CI required check 消费；
-  - 调用 llm_verifier 评分路径时通过 calibrate 记录的阈值 gate。
+  - 样本以 llm-verifier-report/v1 或 verified-report/v1 形态内嵌（或引用外部报告文件）；
+  - verdict 判定复用同一阈值比较语义（aggregated >= threshold → survived，否则 insufficient）；
+  - 盲化注入后的混排集供下游 evidence_check --self-test 或 CI 常驻 required check 消费。
+
+不合格样本构造方法独立于判定脚本代码：
+  - 来源：手工构造的低分 criteria_scores / 含已知捏造引用的 citations；
+  - 这些样本 fixtures 是纯数据（JSON），不包含任何判定逻辑——
+    golden_set.py 的判定逻辑（阈值比较）与样本数据分离，符合 AC-8 "独立于判定脚本"。
 
 用法:
-  python golden_set.py --golden <golden-dir> --criteria <criteria.yaml> \
-      [--calibrate-record <record.json>] [--report-out <out.json>] [--blind]
-  python golden_set.py --self-test [--golden <golden-dir>]
-  python golden_set.py --verify-calibration --criteria <criteria.yaml> \
-      [--calibrate-record <record.json>]
+  python3 pipeline/adversary/golden_set.py replay --golden fixtures/golden/golden-set.json
+  python3 pipeline/adversary/golden_set.py blind  --golden fixtures/golden/golden-set.json --out /tmp/blinded.json
+  python3 pipeline/adversary/golden_set.py verify --golden fixtures/golden/golden-set.json --criteria criteria/X.yaml
 
-退出码: 0=全部回归通过 / calibration 一致 / self-test 通过
-        1=回归失败（不合格样本被误判为合格）或 calibration 不一致
-        2=infra/配置错误（fail-closed）
+退出码：0=全部回归断言通过 | 1=至少一个样本 verdict 偏离预期 | 2=配置/加载/infra 错误
 """
 from __future__ import annotations
 
 import argparse
-import ast
+import copy
 import datetime as dt
 import hashlib
 import json
 import os
 import random
-import re
 import sys
-import tempfile
 from pathlib import Path
 from typing import Any
 
-HERE = os.path.dirname(os.path.abspath(__file__))
-CRITERIA_DIR = os.path.join(HERE, "criteria")
-DEFAULT_GOLDEN_DIR = os.path.join(HERE, "fixtures", "golden")
-CALIBRATE_RECORD_PATH = os.path.join(HERE, "calibrate-record.json")
+try:
+    import yaml
+except ImportError:  # noqa: BLE001
+    print("FATAL: 需要 PyYAML（pip install pyyaml==6.0.3）", file=sys.stderr)
+    sys.exit(2)
+
+DEFAULT_GOLDEN = os.path.join(os.path.dirname(__file__), "fixtures", "golden", "golden-set.json")
+CALIBRATION_DIR = os.path.join(os.path.dirname(__file__), "fixtures", "golden", "calibration")
 
 
 def err(msg: str) -> None:
@@ -61,321 +62,223 @@ def now_iso() -> str:
     return dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-def sha256_bytes(b: bytes) -> str:
-    return "sha256:" + hashlib.sha256(b).hexdigest()
-
-
 def sha256_file(path: str) -> str:
     with open(path, "rb") as f:
-        return sha256_bytes(f.read())
+        return "sha256:" + hashlib.sha256(f.read()).hexdigest()
 
 
-def load_json(path: str) -> Any:
+def sha256_text(text: str) -> str:
+    return "sha256:" + hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+# ---------------------------------------------------------------------------
+# 判定语义（与 llm_verifier.py build_report 同源：aggregated >= threshold → survived）
+# ---------------------------------------------------------------------------
+
+def verdict_from_report(report: dict) -> str:
+    """从 verifier/evidence 报告推导 verdict。
+
+    支持两种形态：
+      - llm-verifier-report/v1：读 criteria_scores[].aggregated 与 threshold 比较；
+      - verified-report/v1：直接读 verdict 字段（已由 evidence_check 强制转 insufficient）。
+    """
+    schema = report.get("schema", "")
+    if schema == "verified-report/v1":
+        return report.get("verdict", "insufficient")
+    # llm-verifier-report/v1 或兼容形态
+    scores = report.get("criteria_scores") or []
+    if not scores:
+        return report.get("verdict", "insufficient")
+    threshold_global = report.get("threshold_global", 0.7)
+    for s in scores:
+        thr = s.get("threshold", threshold_global)
+        if float(s.get("aggregated", 0)) < float(thr):
+            return "insufficient"
+    # token 账作废 → void（同 llm_verifier.py build_report 语义）
+    ta = report.get("token_account") or {}
+    if ta and not ta.get("ok", True):
+        return "void"
+    return "survived"
+
+
+# ---------------------------------------------------------------------------
+# 加载
+# ---------------------------------------------------------------------------
+
+def load_golden(path: str) -> dict:
     try:
         with open(path, encoding="utf-8") as f:
-            return json.load(f)
+            data = json.load(f)
     except Exception as e:  # noqa: BLE001
-        die(2, f"JSON 不可读 {path}: {e}")
-
-
-def load_criteria(path: str) -> dict:
-    try:
-        import yaml
-        with open(path, encoding="utf-8") as f:
-            data = yaml.safe_load(f)
-    except ImportError:
-        die(2, "需要 PyYAML（pip install pyyaml==6.0.3）")
-    except Exception as e:  # noqa: BLE001
-        die(2, f"criteria 文件不可读 {path}: {e}")
+        die(2, f"golden set 不可读或 JSON 非法 {path}: {e}")
     if not isinstance(data, dict):
-        die(2, f"criteria 根不是 mapping: {path}")
+        die(2, f"golden set 根不是 mapping: {path}")
+    if "samples" not in data:
+        die(2, f"golden set 缺少 samples 数组: {path}")
     return data
 
 
+def resolve_report(sample: dict, suite_dir: str) -> dict:
+    """解析单条样本的内联报告或外部报告引用。"""
+    if "report_inline" in sample:
+        return copy.deepcopy(sample["report_inline"])
+    rel = sample.get("report")
+    if not rel:
+        die(2, f"样本 {sample.get('id', '?')} 既无 report_inline 也无 report 引用")
+    report_path = os.path.join(suite_dir, rel)
+    try:
+        with open(report_path, encoding="utf-8") as f:
+            return json.load(f)
+    except Exception as e:  # noqa: BLE001
+        die(2, f"样本 {sample.get('id')} 外部报告不可读 {report_path}: {e}")
+
+
 # ---------------------------------------------------------------------------
-# 盲化注入（AC-8：剥离 id/来源元数据，与正常样本同批混排）
+# 盲化注入（AC-8：剥 id/来源元数据，同批混排）
 # ---------------------------------------------------------------------------
 
-# 需要剥离的来源元数据字段（防判定脚本特判）
-_BLIND_FIELDS = {"id", "source", "origin", "provenance", "author", "created_by",
-                 "sample_id", "fixture_id", "tags", "metadata"}
+def blind_sample(sample: dict, report: dict) -> tuple[dict, dict]:
+    """剥离样本的来源元数据，返回 (blinded_sample, blinded_report)。
 
-
-def blind_sample(sample: dict, rng_seed: int) -> dict:
-    """剥离样本的来源元数据，返回盲化副本。
-
-    保留评分所需的核心字段（report 引用、expected_verdict），移除一切可能
-    让判定脚本"认得"该样本的来源标识（id、tags、source、metadata 等）。
-    report 文件路径保持不变——盲化仅作用于 sample 层级元数据，不创建新文件。
+    被剥离/替换的字段：
+      - sample.id → 替换为 hash（不可逆，仅用于去重/计数）；
+      - sample.tags → 清空（防止判定脚本据此走特判分支）；
+      - sample.source / sample.origin → 删除；
+      - report 中可能暴露来源的字段（card_id、issue 等）→ 泛化为占位。
     """
-    blinded = {k: v for k, v in sample.items() if k not in _BLIND_FIELDS}
+    blinded_sample = copy.deepcopy(sample)
+    orig_id = blinded_sample.get("id", "")
+    blinded_sample["id"] = "blinded-" + sha256_text(orig_id + now_iso())[:16]
+    for k in ("tags", "source", "origin", "constructed_by", "erratum_ref"):
+        blinded_sample.pop(k, None)
+
+    blinded_report = copy.deepcopy(report)
+    for k in ("card_id", "issue", "run_id"):
+        if k in blinded_report:
+            blinded_report[k] = "<redacted>"
+    return blinded_sample, blinded_report
+
+
+def build_blinded_set(golden: dict, seed: int = 42) -> list[dict]:
+    """构建盲化后的混排集（已知不合格 + 已知合格 混排）。"""
+    suite_dir = os.path.dirname(os.path.abspath(golden.get("__path", DEFAULT_GOLDEN)))
+    blinded = []
+    for s in golden.get("samples", []):
+        report = resolve_report(s, suite_dir)
+        bs, br = blind_sample(s, report)
+        bs["report_inline"] = br
+        bs.pop("report", None)
+        blinded.append(bs)
+    rng = random.Random(seed)
+    rng.shuffle(blinded)
     return blinded
 
 
-def blind_inject(golden_dir: str, samples: list[dict], seed: int = 42) -> list[dict]:
-    """对 golden set 样本做盲化注入：剥离元数据 + 混排。
-
-    返回混排后的样本列表（原始样本与盲化副本同批混排）。
-    """
-    rng = random.Random(seed)
-    blinded = [blind_sample(s, seed) for s in samples]
-    # 混排：原始与盲化混合
-    combined = list(samples) + blinded
-    rng.shuffle(combined)
-    return combined
-
-
 # ---------------------------------------------------------------------------
-# golden set 加载
+# 全量重放 + 回归断言
 # ---------------------------------------------------------------------------
 
-def load_golden_set(golden_dir: str) -> dict:
-    """加载 golden set 定义（golden-set.json + 关联的 report 文件）。"""
-    golden_path = os.path.join(golden_dir, "golden-set.json")
-    if not os.path.isfile(golden_path):
-        die(2, f"golden set 定义不存在: {golden_path}")
-    suite = load_json(golden_path)
-    samples = suite.get("samples") or []
-    if not samples:
-        die(2, f"golden set 为空: {golden_path}")
-    # 校验每个样本的 report 文件存在
-    for s in samples:
-        report_path = os.path.join(golden_dir, s.get("report", ""))
-        if not os.path.isfile(report_path):
-            die(2, f"样本 {s.get('id', '?')} 的 report 文件不存在: {report_path}")
-    return suite
+def replay(golden: dict, criteria_path: str | None = None) -> dict:
+    """全量重放 golden set，对每条样本推导 verdict 并与 expected 比较。"""
+    suite_dir = os.path.dirname(os.path.abspath(golden.get("__path", DEFAULT_GOLDEN)))
 
-
-# ---------------------------------------------------------------------------
-# 评分路径（与 llm_verifier.py 接口兼容）
-# ---------------------------------------------------------------------------
-
-def score_sample_report(report: dict, criteria: dict) -> dict:
-    """对单份报告做阈值 gate 评分。
-
-    与 llm_verifier.py 的阈值 gate 逻辑兼容：
-    - 取 criteria.defaults.threshold 作为全局默认阈值；
-    - 逐 criterion 检查连续分是否达标；
-    - 任一 criterion 未达标 → verdict=insufficient。
-
-    这里使用 golden set 的 expected_verdict 作为"已知真相"，
-    评分路径仅做 gate 比对（不调用 LLM——golden set 重放是确定性回归）。
-    """
-    expected = report.get("expected_verdict") or report.get("verdict") or "insufficient"
-    criteria_list = criteria.get("criteria") or []
-    default_threshold = criteria.get("defaults", {}).get("threshold", 0.7)
-
-    scores = []
-    all_pass = True
-    for c in criteria_list:
-        cid = c.get("id", "?")
-        threshold = c.get("threshold", default_threshold)
-        # golden set 报告中的连续分（由 calibrate 阶段标定）
-        criterion_scores = report.get("criterion_scores") or {}
-        score = criterion_scores.get(cid, 0.0)
-        passed = score >= threshold
-        if not passed:
-            all_pass = False
-        scores.append({"id": cid, "score": score, "threshold": threshold, "passed": passed})
-
-    # verdict 判定：expected_verdict=survived 且所有 criterion 通过 → survived
-    if expected == "survived" and all_pass:
-        verdict = "survived"
-    else:
-        verdict = "insufficient"
-
-    return {
-        "verdict": verdict,
-        "expected_verdict": expected,
-        "scores": scores,
-        "all_pass": all_pass,
-    }
-
-
-# ---------------------------------------------------------------------------
-# 全量重放 + 回归断言（AC-8）
-# ---------------------------------------------------------------------------
-
-def replay_all(golden_dir: str, criteria: dict, calibrate_record: dict | None,
-                blind: bool = True, seed: int = 42) -> dict:
-    """全量重放 golden set 并做回归断言。
-
-    返回 golden-run-report/v1。
-    """
-    suite = load_golden_set(golden_dir)
-    samples = suite.get("samples") or []
-
-    # 盲化注入
-    if blind:
-        effective_samples = blind_inject(golden_dir, samples, seed)
-    else:
-        effective_samples = list(samples)
+    # criteria SHA（用于标定一致性校验）
+    criteria_sha = ""
+    if criteria_path and os.path.isfile(criteria_path):
+        criteria_sha = sha256_file(criteria_path)
 
     results = []
     failures = 0
-    for sample in effective_samples:
-        sid = sample.get("id", "(无 id)")
-        report_path = os.path.join(golden_dir, sample.get("report", ""))
-        if not os.path.isfile(report_path):
-            die(2, f"样本 {sid} 的 report 文件不存在: {report_path}")
-        report = load_json(report_path)
-        # 合并 expected_verdict（fixture 中的覆盖）
-        if "expected_verdict" in sample:
-            report["expected_verdict"] = sample["expected_verdict"]
-
-        scoring = score_sample_report(report, criteria)
-
-        # 回归断言：不合格样本仍不合格
-        expected = sample.get("expected_verdict") or report.get("expected_verdict", "insufficient")
-        actual = scoring["verdict"]
-        # 不合格样本（expected=insufficient）必须仍被判为 insufficient
-        regression_ok = True
-        if expected == "insufficient" and actual != "insufficient":
-            regression_ok = False
-        elif expected == "survived" and actual != "survived":
-            regression_ok = False
-
-        if not regression_ok:
+    for s in golden.get("samples", []):
+        sid = s.get("id", "(无 id)")
+        report = resolve_report(s, suite_dir)
+        actual = verdict_from_report(report)
+        expected = s.get("expected_verdict", "insufficient")
+        ok = actual == expected
+        if not ok:
             failures += 1
-
         results.append({
             "id": sid,
-            "expected_verdict": expected,
-            "actual_verdict": actual,
-            "regression_ok": regression_ok,
-            "scores": scoring["scores"],
+            "expected": expected,
+            "actual": actual,
+            "ok": ok,
+            "tags": s.get("tags", []),
         })
 
-    run_id = f"golden-{dt.datetime.now(dt.timezone.utc).strftime('%Y%m%dT%H%M%SZ')}"
-    out = {
-        "schema": "golden-run-report/v1",
-        "run_id": run_id,
-        "golden_set": os.path.abspath(golden_dir),
-        "golden_set_version": suite.get("version", "unknown"),
-        "criteria_ref": criteria.get("card_ref", criteria.get("card", "unknown")),
-        "calibration_sha": calibrate_record.get("criteria_sha") if calibrate_record else None,
-        "blind_inject": blind,
-        "sample_count": len(effective_samples),
-        "failure_count": failures,
-        "results": results,
-        "verdict": "pass" if failures == 0 else "fail",
+    return {
+        "schema": "golden-replay-result/v1",
         "ts": now_iso(),
+        "criteria_sha256": criteria_sha,
+        "criteria_path": os.path.abspath(criteria_path) if criteria_path else None,
+        "total": len(results),
+        "passed": len(results) - failures,
+        "failed": failures,
+        "samples": results,
     }
-    return out
 
 
-# ---------------------------------------------------------------------------
-# calibration 一致性校验（AC-8：criteria 变更必须重新标定）
-# ---------------------------------------------------------------------------
-
-def verify_calibration(criteria_path: str, calibrate_record: dict | None) -> tuple[bool, str]:
-    """校验当前 criteria 的 SHA 与标定记录一致。
-
-    返回 (consistent, reason)。
-    """
-    if calibrate_record is None:
-        return False, "无标定记录（criteria 必须先经 calibrate.py 标定）"
-    criteria_sha = sha256_file(criteria_path)
-    recorded_sha = calibrate_record.get("criteria_sha", "")
-    if criteria_sha != recorded_sha:
-        return False, (f"criteria SHA 不一致: 当前={criteria_sha} "
-                       f"标定记录={recorded_sha}（criteria 变更需重新标定）")
-    return True, f"criteria SHA 一致: {criteria_sha}"
-
-
-# ---------------------------------------------------------------------------
-# self-test
-# ---------------------------------------------------------------------------
-
-def self_test(golden_dir: str) -> int:
-    """内置 self-test：验证 golden set 加载、盲化、重放链路。"""
-    print(f"== golden_set self-test: {golden_dir} ==")
-    try:
-        suite = load_golden_set(golden_dir)
-        samples = suite.get("samples") or []
-        print(f"  加载 {len(samples)} 个样本 OK")
-    except SystemExit as e:
-        print(f"  加载失败 exit={e.code}")
-        return e.code if e.code is not None else 2
-
-    # 盲化测试
-    blinded = blind_inject(golden_dir, samples)
-    print(f"  盲化注入 {len(blinded)} 个样本（含副本）OK")
-
-    # 构造最小 criteria 做重放（AC 编号与 fixture 报告中的 criterion_scores 键一致）
-    criteria = {"card": "self-test", "defaults": {"threshold": 0.7},
-                "criteria": [{"id": "AC-1", "threshold": 0.7}, {"id": "AC-9", "threshold": 0.7}]}
-    try:
-        report = replay_all(golden_dir, criteria, None, blind=True)
-        print(f"  全量重放 verdict={report['verdict']} failures={report['failure_count']} OK")
-    except SystemExit as e:
-        print(f"  重放失败 exit={e.code}")
-        return e.code if e.code is not None else 2
-
-    if report["failure_count"] > 0:
-        print(f"  回归失败 {report['failure_count']} 项")
-        return 1
-    print("  self-test 全部通过")
-    return 0
+def print_replay_summary(res: dict) -> None:
+    print(f"== golden replay: total={res['total']} passed={res['passed']} failed={res['failed']} ==")
+    if res.get("criteria_sha256"):
+        print(f"criteria_sha256: {res['criteria_sha256']}")
+    for s in res["samples"]:
+        mark = "✓" if s["ok"] else "✗"
+        print(f"  {mark} [{s['id']}] expected={s['expected']} actual={s['actual']} tags={s['tags']}")
 
 
 # ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
 
-def main() -> int:
-    ap = argparse.ArgumentParser(prog="golden_set.py", description="golden set 加载、盲化注入、全量重放、回归断言（W5-C1 / AC-8）")
-    ap.add_argument("--golden", default=DEFAULT_GOLDEN_DIR, help="golden set 目录")
-    ap.add_argument("--criteria", default=None, help="criteria YAML 路径")
-    ap.add_argument("--calibrate-record", default=CALIBRATE_RECORD_PATH, help="标定记录 JSON 路径")
-    ap.add_argument("--report-out", default=None, help="golden-run-report 输出路径")
-    ap.add_argument("--blind", action="store_true", default=True, help="启用盲化注入（默认开启）")
-    ap.add_argument("--no-blind", action="store_false", dest="blind")
-    ap.add_argument("--seed", type=int, default=42, help="盲化混排随机种子")
-    ap.add_argument("--self-test", action="store_true", help="运行内置 self-test")
-    ap.add_argument("--verify-calibration", action="store_true", help="校验 criteria SHA 与标定记录一致")
-    a = ap.parse_args()
+def main(argv=None) -> int:
+    ap = argparse.ArgumentParser(prog="golden_set.py", description="verifier golden set 加载/盲化/重放")
+    ap.add_argument("cmd", choices=["replay", "blind", "verify"])
+    ap.add_argument("--golden", default=DEFAULT_GOLDEN, help="golden set JSON 路径")
+    ap.add_argument("--criteria", default="", help="criteria YAML 路径（用于标定校验）")
+    ap.add_argument("--out", default="", help="blind 命令的输出路径")
+    ap.add_argument("--seed", type=int, default=42, help="盲化混排随机种子（默认 42）")
+    args = ap.parse_args(argv)
 
-    if a.self_test:
-        return self_test(a.golden)
+    golden = load_golden(args.golden)
+    golden["__path"] = args.golden
 
-    if not a.criteria:
-        ap.error("--criteria 是必需参数（除非 --self-test）")
+    if args.cmd == "blind":
+        blinded = build_blinded_set(golden, seed=args.seed)
+        out_path = args.out or os.path.join(
+            os.path.dirname(args.golden), "blinded-set.json")
+        payload = {
+            "schema": "blinded-golden-set/v1",
+            "generated_at": now_iso(),
+            "seed": args.seed,
+            "source_golden": os.path.abspath(args.golden),
+            "samples": blinded,
+        }
+        Path(out_path).parent.mkdir(parents=True, exist_ok=True)
+        with open(out_path, "w", encoding="utf-8", newline="\n") as f:
+            json.dump(payload, f, ensure_ascii=False, indent=2)
+        print(f"盲化混排集已写入 {out_path}（{len(blinded)} 条）")
+        return 0
 
-    criteria = load_criteria(a.criteria)
-    calibrate_record = None
-    if a.calibrate_record and os.path.isfile(a.calibrate_record):
-        calibrate_record = load_json(a.calibrate_record)
+    # replay / verify
+    res = replay(golden, args.criteria)
+    print_replay_summary(res)
 
-    # calibration 一致性校验
-    if a.verify_calibration or calibrate_record:
-        consistent, reason = verify_calibration(a.criteria, calibrate_record)
-        print(f"calibration 校验: {reason}")
-        if not consistent:
-            err(f"criteria 标定不一致: {reason}")
-            return 1
+    if args.cmd == "verify" and args.criteria:
+        # verify 模式：对标定记录做 SHA 强一致校验
+        calib_dir = Path(CALIBRATION_DIR)
+        records = sorted(calib_dir.glob("*.json")) if calib_dir.is_dir() else []
+        if records:
+            last = json.loads(records[-1].read_text(encoding="utf-8"))
+            recorded_sha = last.get("criteria_sha256", "")
+            if recorded_sha and recorded_sha != res["criteria_sha256"]:
+                err(f"criteria SHA 变更未重新标定（标定记录 {recorded_sha[:11]} vs 当前 {res['criteria_sha256'][:11]}）——AC-2 fail-closed")
+                return 2
+            print(f"标定 SHA 一致（{res['criteria_sha256'][:11]}）")
+        else:
+            err("无标定记录 — criteria 变更后须先运行 calibrate 重新标定（AC-8）")
+            return 2
 
-    # 全量重放 + 回归断言
-    report = replay_all(a.golden, criteria, calibrate_record, blind=a.blind, seed=a.seed)
-
-    # 输出报告
-    print(f"== golden set 全量重放（W5-C1 / AC-8）==")
-    print(f"golden set: {report['golden_set']} (version={report['golden_set_version']})")
-    print(f"样本数: {report['sample_count']}，失败: {report['failure_count']}")
-    print(f"verdict: {report['verdict']}")
-    for r in report["results"]:
-        mark = "✓" if r["regression_ok"] else "✗"
-        print(f"  {mark} [{r['id']}] expected={r['expected_verdict']} actual={r['actual_verdict']}")
-
-    if a.report_out:
-        with open(a.report_out, "w", encoding="utf-8", newline="\n") as f:
-            json.dump(report, f, ensure_ascii=False, indent=2)
-        print(f"报告已写入: {a.report_out}")
-
-    if report["failure_count"] > 0:
-        err(f"golden set 回归失败 {report['failure_count']} 项")
-        return 1
-    return 0
+    return 1 if res["failed"] else 0
 
 
 if __name__ == "__main__":

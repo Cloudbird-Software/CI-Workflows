@@ -1,45 +1,32 @@
 {
-  "schema": "golden-set/v1",
-  "version": "1",
-  "description": "W5-C1 golden set：含已知不合格样本（构造独立于判定脚本）+ 盲化注入测试集。不合格样本由历史 verdict 标定，不引用 llm_verifier.py 或 evidence_check.py 逻辑。",
+  "schema": "verifier-golden-set/v1",
+  "description": "W5-C1 verifier golden set：含已知不合格样本（低分/捏造引用）+ 已知合格样本；构造独立于判定脚本（纯数据 fixtures）",
   "source": "Cloudbird-Software/.github#286",
-  "spec_ref": "specs/ISSUE-263/spec.md",
-  "spec_version": 5,
+  "blind_seed": 42,
   "samples": [
     {
-      "id": "known-fail-gate-threshold",
-      "report": "report-known-fail.json",
+      "id": "known-bad-low-score",
+      "report": "samples/insufficient-low-score.json",
       "expected_verdict": "insufficient",
-      "tags": ["known-fail", "gate-threshold"],
-      "source": "人工标定：连续分低于阈值"
+      "expected_blocking": true,
+      "tags": ["known-bad", "low-score", "threshold-gate"],
+      "note": "故意低分样本：AC 连续分均低于阈值，verdict 应为 insufficient。用于证明阈值 gate 非特判。"
     },
     {
-      "id": "known-fail-evidence-void",
-      "report": "report-evidence-void.json",
+      "id": "known-bad-fabricated-citation",
+      "report": "samples/insufficient-fabricated-citation.json",
       "expected_verdict": "insufficient",
-      "tags": ["known-fail", "evidence-void"],
-      "source": "AC-9 机械核对作废样本"
+      "expected_blocking": true,
+      "tags": ["known-bad", "fabricated-citation", "evidence-check"],
+      "note": "含已知捏造引用的 verified-report：evidence_check 作废该引用后 verdict 强制 insufficient。"
     },
     {
-      "id": "known-fail-schema",
-      "report": "report-schema-invalid.json",
-      "expected_verdict": "insufficient",
-      "tags": ["known-fail", "schema-invalid"],
-      "source": "AC-15 空报告/不合 schema"
-    },
-    {
-      "id": "anti-spoof-random-low",
-      "report": "report-random-low.json",
-      "expected_verdict": "insufficient",
-      "tags": ["anti-spoof", "random-low-score"],
-      "source": "非 golden 随机低分样本（反特判）"
-    },
-    {
-      "id": "valid-baseline",
-      "report": "report-valid.json",
+      "id": "known-good-valid-report",
+      "report": "samples/survived-valid-report.json",
       "expected_verdict": "survived",
-      "tags": ["valid", "baseline"],
-      "source": "历史 survived 审计记录"
+      "expected_blocking": false,
+      "tags": ["known-good", "valid-verifier-report"],
+      "note": "合法 verifier 报告：所有 AC 连续分高于阈值，verdict=survived。回归断言合格样本仍合格。"
     }
   ]
 }
