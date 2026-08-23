@@ -262,8 +262,9 @@ def cmd_mkreq(a):
             req[k] = v
     if a.thinking:
         req["thinking"] = {"type": a.thinking}  # GLM 4.5+ 推理开关（disabled=计量类小调用必需）
+    # 显式设置 stream:false（兼容 LongCat：避免返回空响应体）
+    req["stream"] = a.stream
     if a.stream:
-        req["stream"] = True
         req["stream_options"] = {"include_usage": True}  # 终块带 usage——聚合计量的数据保障
     print(json.dumps(req, ensure_ascii=False, separators=(",", ":")))
 
