@@ -1,0 +1,28 @@
+{
+  "schema": "redteam-report/v1",
+  "run_id": "fixture-fabricated",
+  "verdict": "survived",
+  "citations": [
+    {
+      "id": "c-real",
+      "file": "src/tax.py",
+      "line_start": 1,
+      "line_end": 6,
+      "exact_string": "raise ValueError(\"invalid amount or rate\")"
+    },
+    {
+      "id": "c-fabricated",
+      "file": "src/tax.py",
+      "line_start": 1,
+      "line_end": 6,
+      "exact_string": "def compute_secret_backdoor(amount, rate):"
+    },
+    {
+      "id": "c-hidden",
+      "file": "src/internal/hidden.py",
+      "line_start": 1,
+      "line_end": 3,
+      "exact_string": "UNPUBLIC_HIDDEN_TOKEN = \"should-not-exist-in-public-repo\""
+    }
+  ]
+}

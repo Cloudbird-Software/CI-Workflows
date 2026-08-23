@@ -14,6 +14,7 @@
 #   T5 计量约定（ADR-0062）：LLM 调用走 metering wrapper——账本恰含
 #      role=adversary 记录（model/temperature/seed/exit_status 留痕）
 #   T6 攻击面清单（#278）：S6-S8 必须 requires_explore=true；S1'-S5' 与 S1-S5 不得标
+#   T7 证据引用机械核对（AC-9 / AC-2 / INV-03）
 # 用法: bash pipeline/adversary/tests/run-tests.sh（CI job 与本地同路径）
 set -uo pipefail
 DIR="$(cd "$(dirname "$0")/.." && pwd)"
@@ -35,9 +36,9 @@ run_rc() {  # run_rc <名> <期望rc> cmd... → 输出捕获进 LAST_OUT
   LAST_OUT=$("$@" 2>&1) || rc=$?
   if [[ "$rc" == "$want" ]]; then pass "$name（rc=$rc）"; else fail "$name：rc=$rc 期望=$want（输出：${LAST_OUT:0:400}）"; fi
 }
-jcheck() {  # jcheck <名> <json文件> <expr>（d=已加载对象）
+jcheck() {  # jcheck <名> <json文件> <expr>（d=已加载对象；os 已导入）
   local name="$1" file="$2" expr="$3"
-  if "$PY" -c "import json,sys; d=json.load(open(sys.argv[1],encoding='utf-8')); sys.exit(0 if ($expr) else 1)" \
+  if "$PY" -c "import json,sys,os; d=json.load(open(sys.argv[1],encoding='utf-8')); sys.exit(0 if ($expr) else 1)" \
       "$file" 2>"$TMP/j.err"; then
     pass "$name"
   else
@@ -48,15 +49,18 @@ jcheck() {  # jcheck <名> <json文件> <expr>（d=已加载对象）
 TMP=$(mktemp -d); trap 'rm -rf "$TMP"' EXIT
 
 # ---- T0 语法/可解析预检 ----
-for s in run-adversary.sh fixtures/weak-suite/run-suite.sh fixtures/strong-suite/run-suite.sh; do
+for s in run-adversary.sh run-verify.sh fixtures/weak-suite/run-suite.sh fixtures/strong-suite/run-suite.sh; do
   bash -n "$DIR/$s" && pass "bash -n $s" || fail "bash -n $s"
 done
-"$PY" -c 'import ast,sys;ast.parse(open(sys.argv[1],encoding="utf-8").read())' "$DIR/adversary.py" \
-  && pass "python 语法 adversary.py" || fail "python 语法 adversary.py"
+for p in adversary.py verify-evidence.py; do
+  "$PY" -c 'import ast,sys;ast.parse(open(sys.argv[1],encoding="utf-8").read())' "$DIR/$p" \
+    && pass "python 语法 $p" || fail "python 语法 $p"
+done
 "$PY" -c 'import json,sys;[json.load(open(f,encoding="utf-8")) for f in sys.argv[1:]]' \
   "$FIX/weak-suite/replay-response.json" "$FIX/strong-suite/replay-response.json" \
   "$DIR/tests/fixtures/empty-attempts.json" \
-  && pass "回放 JSON 三件可解析" || fail "回放 JSON 不可解析"
+  "$FIX/verify-evidence/report-valid.json" "$FIX/verify-evidence/report-fabricated.json" \
+  && pass "回放/verify JSON 可解析" || fail "回放/verify JSON 不可解析"
 
 # ---- T1 配置锁（AC-3） ----
 "$PY" "$DIR/adversary.py" config >"$TMP/lock.json" 2>"$TMP/lock.err"
@@ -160,9 +164,55 @@ print("T6 攻击面清单 requires_explore 语义正确")
 EOF
 if [[ $? -eq 0 ]]; then pass "T6 S6-S8 requires_explore=true 且 S1'-S5'/S1-S5 不标"; else fail "T6 requires_explore 语义错误"; fi
 
+# ---- T7 证据引用机械核对（AC-9 / AC-2 / INV-03） ----
+VFIX="$FIX/verify-evidence"
+VS="$TMP/snapshots"
+run_rc "T7 全有效引用 → exit 0，verdict 保持 survived" 0 \
+  "$PY" "$DIR/verify-evidence.py" --report-in "$VFIX/report-valid.json" \
+    --repo-dir "$VFIX/repo" --snapshot-dir "$VS/valid" \
+    --report-out "$TMP/verify-valid.json" --run-id "test-valid"
+jcheck "T7 valid 报告 verdict=survived 且非 blocking" "$TMP/verify-valid.json" \
+  "d['verdict']=='survived' and d['blocking'] is False and d['void_count']==0"
+jcheck "T7 valid 引用全部命中且含 baseline SHA/时间" "$TMP/verify-valid.json" \
+  "all(c['_status']=='valid' and c['_matched'] is True for c in d['citations']) and len(d['baseline']['sha'])==40 and bool(d['baseline']['fetched_at'])"
+jcheck "T7 valid 快照目录含 manifest + 引用文件" "$TMP/verify-valid.json" \
+  "os.path.isfile(os.path.join(d['snapshot_dir'],'manifest.json')) and os.path.isfile(os.path.join(d['snapshot_dir'],'src/tax.py'))"
+"$PY" - "$VS/valid/manifest.json" <<'EOF'
+import json, sys, datetime as dt
+m = json.load(open(sys.argv[1], encoding="utf-8"))
+assert m["schema"] == "evidence-snapshot-manifest/v1"
+assert m["ttl_days"] == 90
+exp = dt.datetime.fromisoformat(m["expires_at"].replace("Z", "+00:00"))
+cre = dt.datetime.fromisoformat(m["created_at"].replace("Z", "+00:00"))
+assert (exp - cre).days == 90
+assert m["baseline_sha"] and len(m["baseline_sha"]) == 40
+assert "src/tax.py" in m["citation_files"]
+sys.exit(0)
+EOF
+[[ $? -eq 0 ]] && pass "T7 valid TTL manifest 字段齐全" || fail "T7 valid TTL manifest 字段不全"
+
+run_rc "T7 捏造+隐藏引用 → exit 1，verdict 强制 insufficient" 1 \
+  "$PY" "$DIR/verify-evidence.py" --report-in "$VFIX/report-fabricated.json" \
+    --repo-dir "$VFIX/repo" --snapshot-dir "$VS/fabricated" \
+    --report-out "$TMP/verify-fabricated.json" --run-id "test-fabricated"
+jcheck "T7 fabricated 报告 verdict=insufficient 且 blocking" "$TMP/verify-fabricated.json" \
+  "d['verdict']=='insufficient' and d['blocking'] is True and d['original_verdict']=='survived'"
+jcheck "T7 fabricated 作废列表含 c-fabricated 与 c-hidden" "$TMP/verify-fabricated.json" \
+  "set(d['voided'])=={'c-fabricated','c-hidden'} and d['void_count']==2 and d['valid_count']==1"
+jcheck "T7 c-real 仍为 valid，c-fabricated/c-hidden 为 void" "$TMP/verify-fabricated.json" \
+  "{c['id']:c['_status'] for c in d['citations']}=={'c-real':'valid','c-fabricated':'void','c-hidden':'void'}"
+jcheck "T7 fabricated 快照不收录不存在文件" "$TMP/verify-fabricated.json" \
+  "not os.path.exists(os.path.join(d['snapshot_dir'],'src/internal/hidden.py'))"
+
+NOGIT="$TMP/nogit-repo"; mkdir -p "$NOGIT/src"
+echo 'x = 1' > "$NOGIT/src/x.py"
+run_rc "T7 无 git 基准 → fail-closed exit 2" 2 \
+  "$PY" "$DIR/verify-evidence.py" --report-in "$VFIX/report-valid.json" \
+    --repo-dir "$NOGIT" --report-out "$TMP/verify-nogit.json"
+
 echo "-----"
 if [[ $FAILS -eq 0 ]]; then
-  echo "adversary 自测全部通过（T0-T6）"
+  echo "adversary 自测全部通过（T0-T7）"
   exit 0
 fi
 echo "adversary 自测失败 $FAILS 项"

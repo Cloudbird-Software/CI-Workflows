@@ -1,0 +1,21 @@
+{
+  "schema": "redteam-report/v1",
+  "run_id": "fixture-valid",
+  "verdict": "survived",
+  "citations": [
+    {
+      "id": "c-valid",
+      "file": "src/tax.py",
+      "line_start": 1,
+      "line_end": 6,
+      "exact_string": "def calc_tax(amount, rate):"
+    },
+    {
+      "id": "c-range",
+      "file": "src/tax.py",
+      "line_start": 9,
+      "line_end": 11,
+      "exact_string": "\"high\": (1001, 10000)"
+    }
+  ]
+}
