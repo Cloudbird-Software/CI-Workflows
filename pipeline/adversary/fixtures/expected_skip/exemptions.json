@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "#": "W4-C3 specs/** 引用级修改 owner 登记豁免清单（AC-14 / ADR-0032）。C1 路径：变更须走 ADR。glob 或精确路径；命中即 EXPECTED_SKIP=True（reference-level tweaks，无实质 spec 语义改动）。",
+  "owner": "cloudbrid-agent[bot] + 人类 owner",
+  "exemptions": [
+    "docs/**/*.md",
+    "README.md",
+    "profile/**/*.md",
+    "**/README.md",
+    "specs/**/CHANGELOG.md"
+  ]
+}
