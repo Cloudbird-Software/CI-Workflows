@@ -157,9 +157,13 @@ def parse_response(path, stream):
             print(f"debug: 响应前200字符={raw[:200]!r}", file=sys.stderr)
         choices = body.get("choices") or []
         content = choices[0].get("message", {}).get("content", "") if choices else ""
-        # 兼容 LongCat：若 choices 无内容，尝试顶层 text/content 字段
+        # 兼容 LongCat：若 choices 无内容，尝试 thinking / text / content 字段
         if not content:
-            content = body.get("text") or body.get("content") or ""
+            # LongCat 已知问题：回复可能在 thinking 字段中
+            thinking = choices[0].get("message", {}).get("thinking", "") if choices else ""
+            if not thinking:
+                thinking = body.get("thinking") or ""
+            content = thinking or body.get("text") or body.get("content") or ""
         return content or "", 1, body.get("usage")
     parts, chunks, usage = [], 0, None
     for line in raw.splitlines():
