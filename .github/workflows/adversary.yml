@@ -41,6 +41,8 @@ jobs:
             api.github.com:443
             objects.githubusercontent.com:443
             open.bigmodel.cn:443
+            pypi.org:443
+            files.pythonhosted.org:443
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false   # 账本同步走显式 GH_TOKEN 的 contents API，不落 git 凭据
