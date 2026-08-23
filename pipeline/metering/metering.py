@@ -151,8 +151,15 @@ def parse_response(path, stream):
             body = json.loads(raw)
         except json.JSONDecodeError as e:
             return "", 0, None, f"响应非 JSON：{e}"
+        # 调试：记录响应结构（便于排查 provider 格式差异）
+        if not body.get("choices"):
+            print(f"debug: 响应缺 choices，keys={list(body.keys())[:10]}", file=sys.stderr)
+            print(f"debug: 响应前200字符={raw[:200]!r}", file=sys.stderr)
         choices = body.get("choices") or []
         content = choices[0].get("message", {}).get("content", "") if choices else ""
+        # 兼容 LongCat：若 choices 无内容，尝试顶层 text/content 字段
+        if not content:
+            content = body.get("text") or body.get("content") or ""
         return content or "", 1, body.get("usage")
     parts, chunks, usage = [], 0, None
     for line in raw.splitlines():
