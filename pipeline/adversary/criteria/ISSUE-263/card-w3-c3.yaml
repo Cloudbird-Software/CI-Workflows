@@ -1,0 +1,52 @@
+# criteria/ISSUE-263/card-w3-c3.yaml —— W3-C3 llm-verifier 接入
+# 验证 llm-verifier 接入（pip 钉点+lock）、criteria 派生、三探测、token 账。
+card: Cloudbird-Software/.github#279
+spec: specs/ISSUE-263/spec.md
+spec_version: 5
+defaults:
+  threshold: 0.7
+  k: 3
+criteria:
+  - id: verifier-lock
+    name: "llm-verifier pip 钉点 + lock 文件"
+    text: |
+      验证 requirements-llm-verifier.lock 存在且含 llm-verifier==0.2.0 钉点；
+      lock 文件与 CI 安装一致（hash 校验）；不自研 LLM 验证/打分框架
+      （non-goals）。
+    threshold: 0.7
+    ac_refs: [AC-1, AC-19]
+
+  - id: criteria-derivation
+    name: "criteria 一卡一文件且机器可追溯到卡 AC"
+    text: |
+      验证 pipeline/adversary/criteria/ISSUE-263/ 下存在与卡一一对应的
+      criteria YAML 文件，每个 criterion 含 ac_refs 字段追溯到 spec AC 编号；
+      criteria 文件版本化并与标定记录强一致。
+    threshold: 0.7
+    ac_refs: [AC-1, AC-8]
+
+  - id: endpoint-probe
+    name: "endpoint 三探测每次 run 前执行"
+    text: |
+      验证每次 verifier run 前对 endpoint 执行三探测（logprobs 有无、
+      top_logprobs 上限、prefill/structured_outputs 支持），不满足最低要求
+      即 fail-closed（exit 2）；探测结果写入报告含精度折损声明。
+    threshold: 0.7
+    ac_refs: [AC-10]
+
+  - id: token-ledger
+    name: "token 账落盘并与 metering 交叉核对"
+    text: |
+      验证 verifier run 完成后 token 账落盘（metering records-*.jsonl role=verifier），
+      并与 LLM 响应 usage 字段交叉核对；偏差超阈值（相对>5% 或绝对>50 tokens）
+      该 run 判定作废转人工（非仅告警）。
+    threshold: 0.7
+    ac_refs: [AC-11]
+
+  - id: fail-closed-behavior
+    name: "fail-closed：探测失败/计量异常即红"
+    text: |
+      验证 endpoint 不返回 logprobs 时 fail-closed（AC-1）、计量核对失败时
+      run 作废转人工（AC-11）、无 verdict 时不存在"未定义默认绿"分支（INV-04）。
+    threshold: 0.7
+    ac_refs: [AC-1, AC-11]

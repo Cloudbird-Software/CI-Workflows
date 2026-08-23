@@ -1,0 +1,66 @@
+# criteria/ISSUE-263/card-w5-c3.yaml —— W5-C3 红队守门 ADR 收口 + 文档
+# 机器可追溯到 spec AC-1..AC-20（specs/ISSUE-263/spec.md v5）。
+# 一卡一文件；criteria 变更须重新标定（标定 SHA + golden 版本 + 定标时间留档）。
+# 本文件由 test-author（人类 owner 或验证者 APP）维护，开发 agent 不得修改（g060 锁定）。
+card: Cloudbird-Software/.github#288
+spec: specs/ISSUE-263/spec.md
+spec_version: 5
+defaults:
+  threshold: 0.7   # 连续分阈值 gate；低于此值 = verdict=insufficient
+  k: 3             # 每 criterion 重复评估次数（成本旋钮，降档须留痕）
+criteria:
+  - id: ADR-0082-exists
+    name: "ADR-0082 红队守门 ADR 收口落档"
+    text: |
+      验证 agent-registry/decisions/ADR-0082-redteam-gate.md（墓碑）与
+      archive/adr/ADR-0082-redteam-gate.md（正本）均已存在且内容一致
+      （content_sha256 匹配 INDEX.yaml 登记）。正本须覆盖：默认 verifier 范式
+      （ADR-0072/AC-1）、红队守门制度（ADR-0067/BEH-01）、CNB 通道与 fallback
+      （W3-C4）、五轮 dogfood 经验（R1-R5 审计教训）。
+    threshold: 0.7
+    ac_refs: [AC-1, AC-2, AC-19]
+
+  - id: INDEX-updated
+    name: "INDEX.yaml 登记 ADR-0082"
+    text: |
+      验证 agent-registry/decisions/INDEX.yaml 已登记 ADR-0082 条目，
+      lifecycle=active、decision_status=accepted、archive_path 指向
+      adr/ADR-0082-redteam-gate.md、content_sha256 与正本一致。
+    threshold: 0.7
+    ac_refs: [AC-1]
+
+  - id: AGENTS-entry-protocol
+    name: "AGENTS.md 入口协议引用红队守门 ADR 与 g060"
+    text: |
+      验证 .github/AGENTS.md 入口协议已引用红队守门 ADR（ADR-0082）与 g060
+      制度（AC-18），陌生 agent 从入口协议可定位到红队守门范式与测试锁定
+      规则；引用须含 ADR 编号与 archive 路径，不接受模糊描述。
+    threshold: 0.7
+    ac_refs: [AC-18, AC-19]
+
+  - id: verifier-paradigm-coverage
+    name: "默认 verifier 范式四件套覆盖"
+    text: |
+      验证 ADR-0082 正本明确承接 ADR-0072 的 LLM-as-a-Verifier 范式：绝对细粒度
+      reward、criteria 分解、K 次重复评估、阈值 gate；输出结构化连续分；PPT 胜率
+      不得作为 gate 输入（INV-01）；golden 样本盲化注入（AC-8）。
+    threshold: 0.7
+    ac_refs: [AC-1, AC-7, AC-8]
+
+  - id: cnb-fallback-documented
+    name: "CNB 通道与 fallback 链文档化"
+    text: |
+      验证 ADR-0082 正本记录 CNB dispatch 通道 + canary + fallback 链
+      （CNB -> 自有 API -> no-attempts），凭据纪律（CNB 沙箱零 GitHub 凭据），
+      连续 3 次 fallback 或额度尽自动开 type:infra issue。
+    threshold: 0.7
+    ac_refs: [AC-6, AC-15]
+
+  - id: dogfood-lessons
+    name: "五轮 dogfood 经验沉淀"
+    text: |
+      验证 ADR-0082 正本收录五轮红队审计（R1-R5）的关键教训：fail-closed 总原则
+      （INV-04）、ADR-0072/0062/0068 承接引用、blastRadius 补 holdout 仓与
+      agent-registry 真源、白卷不挂失败分支、criteria 溯源、golden 盲化、T6 三元组。
+    threshold: 0.7
+    ac_refs: [AC-5, AC-15, AC-19]
