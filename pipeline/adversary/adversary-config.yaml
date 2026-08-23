@@ -1,5 +1,5 @@
 version: 1
-# adversary 锁定配置（W4-C2 .github#221，ADR-0067 决策 3）
+# adversary 锁定配置（W4-C2 .github#221，ADR-0067 决策 3；W3-C2 .github#278 修订）
 # 考试档案语义（与 ADR-0072 verifier 档案同构）：模型 + prompt 版本 + 采样
 # 参数全锁定，按 judge_id@版本@prompt_hash 存档——攻击结论可复现可审计。
 # 任何改动 = C1 变更（PR 引用 ADR），adversary.py load_lock 逐项执法：
@@ -10,10 +10,10 @@ adversary:
   alias: judge-deep                     # registry/models.yaml 第三族档（AR-8）——档名本身是锁
   model: glm-4.6                        # pipeline/models.yaml judge-deep 解析结果（交叉断言）
   family: sovereign-family              # ≠ builder(flash-family) ≠ test-author(flagship-family)
-  prompt_file: prompt-v1.md
-  prompt_sha256: "sha256:87f725cc65b55889315fd3d2378f87c6e94d44eafcc430d702e67e644e29b346"
+  prompt_file: prompt-v2.md
+  prompt_sha256: "sha256:3cb56e83aeed2307d05b31e9c944408b2571e7e727484739c665e1165adafbb0"
   strategies_file: attack-strategies.yaml
-  strategies_version: v1                # 与 attack-strategies.yaml version 一致（adversary.py 断言）
+  strategies_version: v2                # 与 attack-strategies.yaml version 一致（adversary.py 断言）
   sampling:
     max_tokens: 4096
     temperature: 0.2                    # registry judge-deep limits.temperature_max = 0.2
