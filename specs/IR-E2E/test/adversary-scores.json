@@ -1,0 +1,24 @@
+{
+  "schema": "adversary-audit-input/v1",
+  "card_id": "Cloudbird-Software/.github#287",
+  "spec_version": 99,
+  "spec_path": "fixtures/e2e/deliberately-bad-spec",
+  "audit_run_id": "e2e-local-run-bad-001",
+  "generated_at": "2026-08-23T11:06:29Z",
+  "note": "故意极差 spec 的审计评分输入：全零聚合分（无一 criterion 过阈值 0.7）。构造独立于判定脚本：纯数值合成，与 W5-C1 golden-known-bad-01-empty-criteria 同构。用于触发真实 insufficient (Veto)。",
+  "criteria_scores": [
+    {"id": "ac-traceability", "aggregated": 0.0, "threshold": 0.7, "scores": [0.0, 0.0, 0.0],
+     "note": "AC 无 criteria 分解 / 无溯源到 spec.md 具体行"},
+    {"id": "ir-fidelity", "aggregated": 0.0, "threshold": 0.7, "scores": [0.0, 0.0, 0.0],
+     "note": "IR 保真度丢失：spec 与 #263 blastRadius/AC 无机器可查映射"},
+    {"id": "anti-camouflage", "aggregated": 0.0, "threshold": 0.7, "scores": [0.0, 0.0, 0.0],
+     "note": "反摆拍断言缺失：golden 回归 / 配置面校验 / 凭据形状扫描均未定义"},
+    {"id": "blast-radius", "aggregated": 0.0, "threshold": 0.7, "scores": [0.0, 0.0, 0.0],
+     "note": "blastRadius 结构失真：未声明受保护路径集"},
+    {"id": "suite-strength", "aggregated": 0.0, "threshold": 0.7, "scores": [0.0, 0.0, 0.0],
+     "note": "套件不充分：占位测试恒真，未验证任何 AC 语义"}
+  ],
+  "token_account_ok": true,
+  "threshold_global": 0.7,
+  "expected_verdict": "insufficient"
+}
