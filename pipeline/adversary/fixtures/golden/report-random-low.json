@@ -1,0 +1,25 @@
+{
+  "schema": "verifier-report/v1",
+  "id": "anti-spoof-random-low",
+  "verdict": "insufficient",
+  "expected_verdict": "insufficient",
+  "citations": [],
+  "criterion_scores": {
+    "AC-1": 0.25,
+    "AC-2": 0.30,
+    "AC-7": 0.20,
+    "AC-8": 0.28,
+    "AC-9": 0.35,
+    "AC-10": 0.22,
+    "AC-11": 0.18,
+    "AC-12": 0.32,
+    "AC-14": 0.27,
+    "AC-15": 0.33,
+    "AC-17": 0.24,
+    "AC-18": 0.29,
+    "AC-19": 0.31,
+    "AC-20": 0.26
+  },
+  "ts": "2026-08-22T00:00:00Z",
+  "note": "非 golden 随机低分样本（反特判）：极低连续分触发 gate 失败，证明数值比较非特判"
+}

@@ -1,0 +1,33 @@
+{
+  "schema": "verifier-report/v1",
+  "id": "valid-baseline",
+  "verdict": "survived",
+  "expected_verdict": "survived",
+  "citations": [
+    {
+      "id": "c-valid-1",
+      "file": "pipeline/adversary/golden_set.py",
+      "line_start": 1,
+      "line_end": 10,
+      "exact_string": "golden_set.py"
+    }
+  ],
+  "criterion_scores": {
+    "AC-1": 0.92,
+    "AC-2": 0.88,
+    "AC-7": 0.95,
+    "AC-8": 0.90,
+    "AC-9": 0.93,
+    "AC-10": 0.91,
+    "AC-11": 0.89,
+    "AC-12": 0.94,
+    "AC-14": 0.87,
+    "AC-15": 0.96,
+    "AC-17": 0.85,
+    "AC-18": 0.90,
+    "AC-19": 0.92,
+    "AC-20": 0.88
+  },
+  "ts": "2026-08-22T00:00:00Z",
+  "note": "历史 survived 审计记录：连续分全面高于阈值，引用核对通过"
+}

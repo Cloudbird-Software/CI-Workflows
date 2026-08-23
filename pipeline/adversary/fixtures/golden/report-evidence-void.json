@@ -1,0 +1,24 @@
+{
+  "schema": "verifier-report/v1",
+  "id": "known-fail-evidence-void",
+  "verdict": "insufficient",
+  "expected_verdict": "insufficient",
+  "citations": [
+    {
+      "id": "c-void-1",
+      "file": "pipeline/adversary/evidence_check.py",
+      "line_start": 1,
+      "line_end": 10,
+      "exact_string": "THIS_STRING_DOES_NOT_EXIST_IN_ANY_FILE_12345",
+      "_status": "void",
+      "_reason": "精确字符串未命中（AC-9 作废样本）"
+    }
+  ],
+  "criterion_scores": {
+    "AC-1": 0.60,
+    "AC-9": 0.30,
+    "AC-12": 0.55
+  },
+  "ts": "2026-08-22T00:00:00Z",
+  "note": "已知不合格样本：含捏造引用，AC-9 机械核对作废→verdict 强制 insufficient"
+}
