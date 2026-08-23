@@ -67,6 +67,7 @@ jobs:
           LLM_MODEL: ${{ vars.MODEL1 }}
           ADV_TARGET: ${{ inputs.target }}
           ADV_REPLAY: ${{ inputs.replay_file }}
+          ADVTHINK: ""
         run: |
           args=(--target "$ADV_TARGET" --report-out "$RUNNER_TEMP/adversary-report.json")
           if [[ -n "$ADV_REPLAY" ]]; then
