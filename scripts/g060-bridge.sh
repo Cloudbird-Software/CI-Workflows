@@ -1,124 +1,103 @@
 #!/usr/bin/env bash
-# g060-bridge.sh —— CI-Workflows 跨仓桥接（ISSUE-263 W2-C2）
+# g060-bridge.sh —— g060 测试分片锁定跨仓调用桥（W2-C2 .github#274，ADR-0061）
 #
-# 供 CI-Workflows 或被治理仓调用，对 Cloudbird-Software/.github 的
-# specs/*/suite/** 变更执行 g060 锁定检查；非授权身份修改时在上游 .github 仓
-# 开裁决 issue 路由 owner。
+# 当 .github 仓的 g060-guard.yml 因 cloudbrid-agent 无 workflows 权限无法推送时，
+# 本脚本提供等价跨仓触发路径：由 CI-Workflows 的 workflow 经 repository_dispatch
+# 或 workflow_dispatch 调用，拉取 .github 仓 scripts/g060-lock.sh 执行分片锁定。
+#
+# 拉取策略（降级链）：
+#   1. GitHub REST API 取 main 分支文件内容（raw.githubusercontent.com 经 API）
+#   2. 回退：git sparse-checkout pull（公开仓免凭据）
+# 选 REST API 为主路径：git push/pull 在当前网络环境易超时，REST API 已验证可用。
+#
+# 职责：
+#   1. 拉取 .github 仓的 scripts/g060-lock.sh
+#   2. 收集当前仓/触发源的变更文件中命中 specs/*/suite/** 的列表
+#   3. 调用 g060-lock.sh 执行身份判定；未授权 exit 2 → 本脚本 exit 2（阻断）
 #
 # 用法：
-#   bash g060-bridge.sh --target-repo Cloudbird-Software/.github \
-#                       --pr <number> --actor <actor> \
-#                       [--owner <owner>] [--verifier <app-slug>]
-#   环境变量：GH_TOKEN / GITHUB_TOKEN（须对 target-repo 有 issues:write）
-
+#   bash scripts/g060-bridge.sh \
+#     --actor <actor-login> \
+#     --github-repo Cloudbird-Software/.github \
+#     --changed-files <f1> [<f2> ...] \
+#     [--token $GH_TOKEN] \
+#     [--workdir .g060-bridge]
+#
+# 退出码（与 g060-lock.sh 一致）：
+#   0 = 已授权 | 1 = 无测试路径变更（跳过） | 2 = 未授权阻断（已开 issue）
 set -euo pipefail
 
-TARGET_REPO="${G060_TARGET_REPO:-Cloudbird-Software/.github}"
-PR_NUMBER=""
-ACTOR="${G060_ACTOR:-${GITHUB_ACTOR:-}}"
-OWNER="${G060_OWNER:-randypanding}"
-VERIFIER_SLUG="${G060_VERIFIER:-verifier-app}"
-VERIFIER_ACTOR="${VERIFIER_SLUG}[bot]"
-IR_CARD="Cloudbird-Software/.github#274"
-LOCK_PATTERN='specs/*/suite/*'
-SHOW_HELP=0
-
-usage() {
-  cat <<EOF
-用法: $(basename "$0") [选项]
-  --target-repo <owner/repo>  目标治理仓（默认：Cloudbird-Software/.github）
-  --pr <number>               目标 PR 编号（必须）
-  --actor <actor>             触发者 GitHub login（默认：\$GITHUB_ACTOR）
-  --owner <owner>             人类 owner（默认：randypanding）
-  --verifier <slug>           验证者 App slug（默认：verifier-app）
-  -h, --help                  显示本帮助
-EOF
-}
+ACTOR=""
+GH_REPO="Cloudbird-Software/.github"
+TOKEN="${GITHUB_TOKEN:-}"
+WORKDIR=".g060-bridge"
+CHANGED_FILES=()
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --target-repo) TARGET_REPO="$2"; shift 2 ;;
-    --pr) PR_NUMBER="$2"; shift 2 ;;
-    --actor) ACTOR="$2"; shift 2 ;;
-    --owner) OWNER="$2"; shift 2 ;;
-    --verifier) VERIFIER_SLUG="$2"; VERIFIER_ACTOR="${VERIFIER_SLUG}[bot]"; shift 2 ;;
-    -h|--help) SHOW_HELP=1; shift ;;
-    *) echo "错误：未知参数 $1" >&2; usage >&2; exit 1 ;;
+    --actor)          ACTOR="${2:?}"; shift 2 ;;
+    --github-repo)    GH_REPO="${2:?}"; shift 2 ;;
+    --token)          TOKEN="${2:?}"; shift 2 ;;
+    --workdir)        WORKDIR="${2:?}"; shift 2 ;;
+    --changed-files)  shift; while [[ $# -gt 0 && "$1" != --* ]]; do CHANGED_FILES+=("$1"); shift; done ;;
+    *) echo "未知参数 $1" >&2; exit 2 ;;
   esac
 done
 
-[[ $SHOW_HELP -eq 1 ]] && { usage; exit 0; }
+[[ -n "$ACTOR" ]] || { echo "::error::需要 --actor" >&2; exit 2; }
 
-if [[ -z "$PR_NUMBER" ]]; then
-  echo "错误：--pr 为必填项" >&2
-  usage >&2
+# 快速预筛：无测试路径变更则提前退出
+touched=0
+for f in "${CHANGED_FILES[@]}"; do
+  [[ "$f" =~ ^specs/[^/]+/suite/ ]] && { touched=1; break; }
+done
+if [[ "$touched" -eq 0 ]]; then
+  echo "g060-bridge: 无 specs/*/suite/** 变更，跳过"
   exit 1
 fi
-if [[ -z "$ACTOR" ]]; then
-  echo "错误：--actor 或 \$GITHUB_ACTOR 未设置" >&2
-  exit 1
-fi
 
-is_authorized() {
-  local actor="$1"
-  [[ "$actor" == "$OWNER" || "$actor" == "$VERIFIER_ACTOR" ]]
+# 经 REST API 取 main 分支 g060-lock.sh 内容（base64 编码）
+fetch_via_api() {
+  local url="https://api.github.com/repos/${GH_REPO}/contents/scripts/g060-lock.sh?ref=main"
+  local auth=()
+  [[ -n "$TOKEN" ]] && auth=(-H "Authorization: Bearer ${TOKEN}")
+  curl -s "${auth[@]}" -H "Accept: application/vnd.github.raw" \
+    -o "$1" -w "%{http_code}" "$url" | grep -qE "^(200|302)$"
 }
 
-# ---------- 拉取目标 PR 的变更文件 ----------
-mapfile -t FILES < <(gh pr view "$PR_NUMBER" --repo "$TARGET_REPO" \
-  --json files --jq '.files[].path' 2>/dev/null || true)
+rm -rf "$WORKDIR"
+mkdir -p "$WORKDIR/scripts"
 
-LOCKED_FILES=()
-for f in "${FILES[@]}"; do
-  [[ -z "$f" ]] && continue
-  case "$f" in
-    specs/*/suite/*) LOCKED_FILES+=("$f") ;;
-  esac
-done
-
-if [[ ${#LOCKED_FILES[@]} -eq 0 ]]; then
-  echo "g060-bridge: 目标 PR #${PR_NUMBER} 未涉及 ${TARGET_REPO} 的 specs/*/suite/**"
-  exit 0
-fi
-
-if is_authorized "$ACTOR"; then
-  echo "g060-bridge: 触发者 $ACTOR 为授权身份，放行："
-  printf '  - %s\n' "${LOCKED_FILES[@]}"
-  exit 0
-fi
-
-echo "::error::g060-bridge: 触发者 $ACTOR 非授权身份，修改了 ${TARGET_REPO} 的锁定路径："
-printf '  - %s\n' "${LOCKED_FILES[@]}" >&2
-
-PR_URL="https://github.com/${TARGET_REPO}/pull/${PR_NUMBER}"
-
-ISSUE_BODY=$(cat <<EOF
-> 由 CI-Workflows g060-bridge.sh 自动生成 | ADR-0061 g060 扩展 | 卡：${IR_CARD}
-
-触发者 \`$ACTOR\` 在 ${TARGET_REPO} 的 PR #${PR_NUMBER} 中修改了以下按 IR 分片的锁定测试路径：
-$(printf '%s\n' "${LOCKED_FILES[@]}" | sed 's/^/- `/; s/$/`/')
-
-关联 PR：${PR_URL}
-
-## 请 owner 裁决
-- \`/g060-adopt <证据引用>\`：采纳变更（终态机器可核）。
-- \`/g060-reject <证据引用>\`：驳回变更（终态机器可核）。
-- 无裁决且超过 TTL（72h）将触发 dead-man 提醒。
-EOF
-)
-
-ISSUE_TITLE="g060 blocked: unauthorized change to specs/*/suite/** by ${ACTOR}"
-
-if gh issue create --repo "$TARGET_REPO" --title "$ISSUE_TITLE" --body "$ISSUE_BODY" \
-   --assignee "$OWNER" --label state:needs-human >/dev/null 2>&1; then
-  echo "::error::已在 ${TARGET_REPO} 创建裁决 issue 并 assign 给 $OWNER"
+if fetch_via_api "$WORKDIR/scripts/g060-lock.sh"; then
+  echo "g060-bridge: 经 REST API 拉取 g060-lock.sh 成功"
 else
-  if gh issue create --repo "$TARGET_REPO" --title "$ISSUE_TITLE" --body "$ISSUE_BODY" \
-     --assignee "$OWNER" >/dev/null 2>&1; then
-    echo "::warning::已在 ${TARGET_REPO} 创建裁决 issue（无 state:needs-human 标签）" >&2
-  else
-    echo "::error::g060-bridge: 在 ${TARGET_REPO} 创建裁决 issue 失败" >&2
-  fi
+  # 回退：git sparse-checkout（公开仓免凭据）
+  echo "g060-bridge: REST API 拉取失败，回退 git sparse-checkout"
+  cd "$WORKDIR"
+  git init -q .
+  git remote add origin "https://github.com/${GH_REPO}.git" 2>/dev/null || \
+    git remote set-url origin "https://github.com/${GH_REPO}.git"
+  git config core.sparseCheckout true
+  printf 'scripts/g060-lock.sh\n' > .git/info/sparse-checkout
+  git pull --depth=1 origin main >&2 || {
+    echo "::error::g060-bridge: 无法拉取 ${GH_REPO} scripts/" >&2
+    cd ..; rm -rf "$WORKDIR"; exit 2
+  }
+  cd ..
 fi
 
-exit 2
+LOCK_SCRIPT="$WORKDIR/scripts/g060-lock.sh"
+[[ -f "$LOCK_SCRIPT" ]] || { echo "::error::g060-lock.sh 未在 ${GH_REPO} 中找到" >&2; exit 2; }
+
+echo "g060-bridge: 执行锁定（actor=${ACTOR}, changed=${#CHANGED_FILES[@]}）"
+set +e
+bash "$LOCK_SCRIPT" \
+  --actor "$ACTOR" \
+  --token "$TOKEN" \
+  --repo "$GH_REPO" \
+  --changed-files "${CHANGED_FILES[@]}"
+RC=$?
+set -e
+
+rm -rf "$WORKDIR"
+exit "$RC"
