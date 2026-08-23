@@ -1,0 +1,17 @@
+version: 1
+# verifier 锁定配置（W3-C3 .github#279，ADR-0072）
+# 与 adversary-config.yaml 同构：verifier 角色档 + 采样参数全锁定，
+# 按 verifier_id@版本@criteria_sha256 存档——判定结论可复现可审计。
+# 任何改动 = C1 变更（PR 引用 ADR）。
+verifier:
+  alias: judge-deep                     # 复用 models.yaml 角色档（AR-8 跨族分离）
+  role: judge-deep
+  criteria_dir: pipeline/adversary/criteria
+  repeat_k: 3                           # K 次重复评估（成本旋钮，降档须留痕）
+  token_deviation_pct: 10               # usage 与 metering 偏差阈值（%）
+  # pip 钉点（与 .github/requirements-llm-verifier.txt 一致）
+  pip_pinned:
+    pyyaml: "6.0.3"
+  # 输出 schema 版本（与 W3-C1/W3-C5 接口兼容）
+  output_schema: llm-verifier-report/v1
+  # 精度折损声明由 probe 结果动态写入报告
