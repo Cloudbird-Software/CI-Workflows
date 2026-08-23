@@ -77,6 +77,15 @@ jobs:
           # 退出码语义：0=套件通过考验 | 1=套件不充分（blocking，本 run 红）
           # | 3=adversary 白卷（恒绿防御 infra）| 2/4=环境/provider 失败
           bash pipeline/adversary/run-adversary.sh "${args[@]}"
+      - name: 调试：dump 响应（仅失败时）
+        if: failure()
+        run: |
+          echo "=== metering 账本 ==="
+          ls -la .metering/ 2>/dev/null || true
+          echo "=== invalid 响应 ==="
+          head -c 500 .metering/invalid-*.json 2>/dev/null || true
+          echo "=== 报告 ==="
+          head -c 500 "$RUNNER_TEMP/adversary-report.json" 2>/dev/null || true
       - name: 判定报告入 run 摘要（无论成败都留痕）
         if: always()
         run: |
