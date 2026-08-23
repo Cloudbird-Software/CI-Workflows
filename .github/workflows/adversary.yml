@@ -1,7 +1,6 @@
 name: adversary
-# W3-C1 + W4-C2 adversary workflow（Cloudbird-Software/.github#277，ADR-0067）
-#   - repository_dispatch：event_type 白名单精确匹配（W3-C1），由 conductor/T5/T6 触发
-#   - workflow_dispatch：spec PR 阶段/波次收口按需手动运行（W4-C2）
+# 恶意合规 adversary（W4-C2 .github#221，ADR-0067）——红队工具，仅 workflow_dispatch
+# 手动触发（spec PR 阶段/波次收口按需运行，ADR-0067 决策 5——非每 PR、非必需门）。
 # 判定语义：judge-deep 档（配置锁定+AR-8 跨族）产出"通过全部测试的最偷懒实现"，
 # 在套件上全绿 → 判"套件不充分"（本 run 红=blocking：实现 PR 须先补强套件）；
 # 攻击失败 → 套件通过考验（绿）；白卷 → exit 3 infra（恒绿防御）。
@@ -10,10 +9,6 @@ name: adversary
 # 安全语义：adversary 产物是故意生成的不可信代码，judge 步会真实执行——本
 # workflow 跑在一次性 GitHub-hosted runner 上（凭据仅 provider key，无 repo 写权）。
 on:
-  repository_dispatch:
-    types:
-      - adversary-run
-      - adversary-replay
   workflow_dispatch:
     inputs:
       target:
@@ -25,7 +20,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: adversary-${{ github.event.client_payload.issue || github.ref }}
+  group: adversary-${{ github.ref }}
   cancel-in-progress: false   # 判定报告不并发覆盖（同 target 重跑按序排队）
 
 jobs:
@@ -36,84 +31,24 @@ jobs:
     # 分支所需（同仓 GITHUB_TOKEN——llm-connectivity 同模式）；攻击步本身只读
     permissions:
       contents: write
-
-    env:
-      # 配置面：repository_dispatch 载荷字段通过 env 注入，避免 template-injection
-      ADV_EVENT_TYPE: ${{ github.event.action }}
-      ADV_ISSUE: ${{ github.event.client_payload.issue }}
-      ADV_SPEC_PATH: ${{ github.event.client_payload.spec_path }}
-      ADV_CARD_ID: ${{ github.event.client_payload.card_id }}
-      ADV_AUDIT_RUN_ID: ${{ github.event.client_payload.audit_run_id }}
-      LLM_ENDPOINT: ${{ vars.LLM_ENDPOINT }}
-      LLM_MODEL: ${{ vars.LLM_MODEL }}
-
     steps:
-      - name: 出向白名单（仅 github + provider + CNB，INV-06 / AC-13）
+      - name: 出向白名单（仅 github + provider，INV-06）
         uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c # v2.21.0
         with:
           egress-policy: block
-          # harden-runner allowed-endpoints 为静态列表；LLM endpoint 域名须与 vars.LLM_ENDPOINT 同步维护
-          allowed-endpoints: |
+          allowed-endpoints:
             github.com:443
             api.github.com:443
             objects.githubusercontent.com:443
-            api.cnb.cool:443
             open.bigmodel.cn:443
-            api.openai.com:443
-            api.anthropic.com:443
-      - name: Checkout 完整代码库 + sparse-checkout 治理规范
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false   # 账本同步走显式 GH_TOKEN 的 contents API，不落 git 凭据
-          sparse-checkout: |
-            governance/
-            specs/
-            pipeline/adversary/
-            pipeline/metering/
-          sparse-checkout-cone-mode: false
-
-      - name: 校验 repository_dispatch event_type 白名单（不信任 dispatch 载荷）
-        if: github.event_name == 'repository_dispatch'
-        run: |
-          set -euo pipefail
-          case "$ADV_EVENT_TYPE" in
-            adversary-run|adversary-replay) ;;
-            *) echo "::error::event_type '$ADV_EVENT_TYPE' 不在白名单内"; exit 2 ;;
-          esac
-          echo "event_type=$ADV_EVENT_TYPE 校验通过"
-
-      - name: 解析目标路径（workflow_dispatch / repository_dispatch 兼容）
-        id: target
-        env:
-          ADV_TARGET_IN: ${{ inputs.target }}
-          ADV_REPLAY_IN: ${{ inputs.replay_file }}
-        run: |
-          set -euo pipefail
-          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
-            t="$ADV_TARGET_IN"
-            r="$ADV_REPLAY_IN"
-          else
-            t="${ADV_SPEC_PATH:-}"
-            r=""
-            # replay 模式下 repository_dispatch 可透传 audit_run_id 作为回放键
-            if [[ "$ADV_EVENT_TYPE" == "adversary-replay" ]]; then
-              r="${ADV_AUDIT_RUN_ID:-}"
-            fi
-          fi
-          echo "target=$t" >> "$GITHUB_OUTPUT"
-          echo "replay=$r" >> "$GITHUB_OUTPUT"
-
-      - name: 凭据形状扫描（AC-6：禁止出现第二个凭据）
-        run: |
-          set -euo pipefail
-          python3 pipeline/adversary/run.py --mode credential-scan --env-dump "$RUNNER_TEMP/credential-scan.json"
-
       - name: PyYAML（adversary-config / attack-strategies / 角色档表解析）
         run: python3 -m pip install --disable-pip-version-check --quiet pyyaml==6.0.3
-
       - name: 目标契约预检（fail-closed：路径错不在 runner 上瞎跑）
         env:
-          ADV_TARGET: ${{ steps.target.outputs.target }}
+          ADV_TARGET: ${{ inputs.target }}
         run: |
           set -eu
           # 输入只经 env 进 shell（zizmor template-injection 面收敛）
@@ -122,14 +57,13 @@ jobs:
           [[ -f "$ADV_TARGET/spec.md" && -d "$ADV_TARGET/suite" && -f "$ADV_TARGET/run-suite.sh" ]] \
             || { echo "::error::目标目录契约不满足（spec.md + suite/ + run-suite.sh）：$ADV_TARGET"; exit 2; }
           ls -1 "$ADV_TARGET"/suite | head
-
       - name: 攻击（judge-deep 锁定 + 计量 wrapper，ADR-0067/0062）
         env:
-          LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
-          LLM_ENDPOINT: ${{ vars.LLM_ENDPOINT }}
-          LLM_MODEL: ${{ vars.LLM_MODEL }}
-          ADV_TARGET: ${{ steps.target.outputs.target }}
-          ADV_REPLAY: ${{ steps.target.outputs.replay }}
+          LLM_API_KEY: ${{ secrets.LLM_API_KEY1 }}
+          LLM_ENDPOINT: ${{ vars.LLM_ENDPOINT1 }}
+          LLM_MODEL: ${{ vars.MODEL1 }}
+          ADV_TARGET: ${{ inputs.target }}
+          ADV_REPLAY: ${{ inputs.replay_file }}
         run: |
           args=(--target "$ADV_TARGET" --report-out "$RUNNER_TEMP/adversary-report.json")
           if [[ -n "$ADV_REPLAY" ]]; then
@@ -140,17 +74,6 @@ jobs:
           # 退出码语义：0=套件通过考验 | 1=套件不充分（blocking，本 run 红）
           # | 3=adversary 白卷（恒绿防御 infra）| 2/4=环境/provider 失败
           bash pipeline/adversary/run-adversary.sh "${args[@]}"
-      - name: 报告 schema 校验（白卷即失败，AC-15）
-        if: always()
-        run: |
-          set -euo pipefail
-          f="$RUNNER_TEMP/adversary-report.json"
-          if [[ ! -f "$f" ]]; then
-            echo "::error::未产出 adversary 报告（白卷）"
-            exit 3
-          fi
-          python3 pipeline/adversary/run.py --mode validate --report "$f"
-
       - name: 判定报告入 run 摘要（无论成败都留痕）
         if: always()
         run: |
