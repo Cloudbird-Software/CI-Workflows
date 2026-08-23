@@ -266,10 +266,13 @@ def cmd_emit(a):
         content, chunks, usage = parse_response(a.resp_file, a.stream)
     pt, ct, tt = usage_tuple(usage)
     if exit_status == "ok":
-        # fail-closed 自检（llm-call.sh 同款语义）：2xx 却拿不到内容/用量 = 计量失败，
-        # 记录只落 .invalid 旁证、不进链——无计量的"成功"不算成功
-        if not content or tt <= 0:
+        # 自检：2xx 却拿不到内容 = 计量失败；usage 缺失允许继续（部分 provider
+        # 如 LongCat 默认不返回 usage，此时记 0 token 但不阻断流程）
+        if not content:
             exit_status = "error:metering"
+        elif tt <= 0:
+            # usage 缺失——记 0 token 并打印警告，不阻断
+            print(f"warning: provider 响应缺 usage（记 0 token），content_len={len(content)}", file=sys.stderr)
     os.makedirs(a.ledger, exist_ok=True)
     ts = a.ts_start or ts_end
     # prompt 经文件读入（不走 argv：多行文本经 MSYS→Windows argv 会换行损坏）
