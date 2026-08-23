@@ -1,0 +1,39 @@
+{
+  "schema": "verified-report/v1",
+  "run_id": "golden-known-bad-002",
+  "baseline": {"sha": "abc123def456", "fetched_at": "2026-08-23T00:00:00Z", "repo_dir": "."},
+  "original_verdict": "survived",
+  "verdict": "insufficient",
+  "blocking": true,
+  "voided": ["c-fabricated"],
+  "citation_count": 2,
+  "valid_count": 1,
+  "void_count": 1,
+  "citations": [
+    {
+      "id": "c-valid",
+      "file": "src/tax.py",
+      "line_start": 1,
+      "line_end": 5,
+      "exact_string": "def compute_tax(",
+      "_status": "valid",
+      "_reason": "命中",
+      "_matched": true,
+      "_checked_at": "2026-08-23T00:00:00Z"
+    },
+    {
+      "id": "c-fabricated",
+      "file": "src/verify.py",
+      "line_start": 10,
+      "line_end": 20,
+      "exact_string": "evidence_check passes all citations mechanically",
+      "_status": "void",
+      "_reason": "精确字符串未在指定行范围内命中",
+      "_matched": false,
+      "_checked_at": "2026-08-23T00:00:00Z"
+    }
+  ],
+  "snapshot_dir": "snapshots/golden-known-bad-002",
+  "snapshot_manifest": "snapshots/golden-known-bad-002/manifest.json",
+  "report_copy": "snapshots/golden-known-bad-002/report-in.json"
+}
