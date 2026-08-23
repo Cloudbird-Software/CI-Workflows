@@ -84,11 +84,14 @@ jobs:
 
       - name: 解析目标路径（workflow_dispatch / repository_dispatch 兼容）
         id: target
+        env:
+          ADV_TARGET_IN: ${{ inputs.target }}
+          ADV_REPLAY_IN: ${{ inputs.replay_file }}
         run: |
           set -euo pipefail
           if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
-            t="${{ inputs.target }}"
-            r="${{ inputs.replay_file }}"
+            t="$ADV_TARGET_IN"
+            r="$ADV_REPLAY_IN"
           else
             t="${ADV_SPEC_PATH:-}"
             r=""
