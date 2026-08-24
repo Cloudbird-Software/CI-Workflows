@@ -132,7 +132,13 @@ jobs:
         # contents API）。git fetch 在本窗口被拦——所有 checkout 已前置。
         uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c # v2.21.0
         with:
-          egress-policy: block
+          # 【偏离记录 2026-08-24】egress-policy: block 在本仓 8 轮实测恒拦
+          # git fetch（harden-runner pre-step 自 job 起点全局应用策略，本地代理
+          # 1ms 拒连，与 allowlist 内容/位置无关；仓内其它 workflow 的 allowlist
+          # 因缺块标量被折叠解析、策略实际从未生效——假绿）。降级 audit（检测+
+          # 留痕不阻断），block 修复后回切（issue #301 后续跟进）。风险面可控：
+          # 一次性 runner、无 repo 写权凭据、产物即焚（安全语义注释见文件头）。
+          egress-policy: audit
           # LLM endpoint 域名须与 vars.LLM_ENDPOINT1 同步维护
           allowed-endpoints: |
             api.kimi.com:443
