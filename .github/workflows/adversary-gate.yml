@@ -18,6 +18,12 @@ name: adversary-gate
 on:
   pull_request:
     types: [opened, synchronize, reopened]
+  merge_group:
+    # merge queue 兼容（2026-08-24）：required workflow 不在队列分支上自动运行，
+    # 队列 merge commit 会永远等不到 adversary check（60min 超时弹回）——本 gate
+    # 在 checks_requested 时对比 base..head，无 specs/** 变更即写 success（与
+    # PR 路径同语义）；有 specs 变更的合并需人工补 survived 审计（fail-closed）。
+    types: [checks_requested]
 
 permissions:
   contents: read
@@ -37,7 +43,41 @@ jobs:
       pull-requests: read
       checks: write
     steps:
+      - name: merge_group 路径——对比 base..head 判定 specs 变更并直写 check
+        if: github.event_name == 'merge_group'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          HEAD_SHA: ${{ github.event.merge_group.head_sha }}
+          BASE_SHA: ${{ github.event.merge_group.base_sha }}
+        run: |
+          set -euo pipefail
+          FILES=$(gh api "repos/$REPO/compare/$BASE_SHA...$HEAD_SHA" --jq '[.files[].filename]' 2>/dev/null || echo 'null')
+          if [[ "$FILES" == "null" || -z "$FILES" ]]; then
+            echo "::warning::compare API 失败（负向断言：视为 spec 变更，fail-closed）"; FILES='["specs/fallback.md"]'
+          fi
+          HASSPECS=$(echo "$FILES" | python3 -c "import json,sys;files=json.load(sys.stdin);print('true' if any(f.startswith('specs/') for f in files) else 'false')")
+          SUMMARY="merge_group 路径预检：base..head specs/** 变更=$HASSPECS"
+          if [[ "$HASSPECS" == "true" ]]; then
+            echo "::error::merge queue 提交含 specs/** 变更——需人工确认 survived 审计后重试（fail-closed）"
+            exit 1
+          fi
+          python3 - "$SUMMARY" > "$RUNNER_TEMP/check_body.json" <<'PYEOF2'
+          import json, sys, os, datetime as dt
+          json.dump({
+              "name": "adversary",
+              "head_sha": os.environ["HEAD_SHA"],
+              "status": "completed",
+              "conclusion": "success",
+              "completed_at": dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+              "output": {"title": "adversary: skipped (merge_group, no specs/** change)", "summary": sys.argv[1]},
+          }, sys.stdout)
+          PYEOF2
+          curl -fsS -X POST             -H "Authorization: Bearer $GH_TOKEN"             -H "Accept: application/vnd.github+json"             "https://api.github.com/repos/$REPO/check-runs"             -d @"$RUNNER_TEMP/check_body.json"
+          echo "merge_group：adversary check run 已写回 success（EXPECTED_SKIP）"
+
       - name: 预检 PR 是否含 specs/** 变更（gh + github.token）
+        if: github.event_name == 'pull_request'
         id: specspr
         env:
           GH_TOKEN: ${{ github.token }}
