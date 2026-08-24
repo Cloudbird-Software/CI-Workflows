@@ -124,51 +124,21 @@ jobs:
             -d @"$RUNNER_TEMP/check_body.json" \
             && echo "非 specs PR：adversary check run 已写回 success"
 
-      - name: 拉 gh-app-token.sh（.github 仓，ADR-0044——目标仓上下文无此脚本）
-        if: steps.specspr.outputs.has_specs == 'true'
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          repository: Cloudbird-Software/.github
-          sparse-checkout: scripts/gh-app-token.sh
-          path: gov
-          persist-credentials: false
-
-      - name: 铸 App 令牌（checks:write，INV-02）
-        id: token
-        if: steps.specspr.outputs.has_specs == 'true'
-        env:
-          CB_APP_ID: ${{ secrets.CB_APP_ID }}
-          AGENT_APP_SECRET: ${{ secrets.AGENT_APP_SECRET }}
-          REPO: ${{ github.repository }}
-        run: |
-          set +e
-          NAME="${REPO#*/}"
-          TOKEN=$(REPO="$NAME" CB_APP_ID="$CB_APP_ID" AGENT_APP_SECRET="$AGENT_APP_SECRET" \
-                  bash gov/scripts/gh-app-token.sh 2>/dev/null)
-          if [[ -z "$TOKEN" ]]; then
-            echo "::error::App 令牌铸造失败——无法写回 adversary check run"
-            echo "have_token=false" >> "$GITHUB_OUTPUT"
-          else
-            echo "APP_TOKEN=$TOKEN" >>"$GITHUB_ENV"
-            echo "have_token=true" >> "$GITHUB_OUTPUT"
-          fi
-
       - name: specs PR——校验 adversary check run 已存在且 survived
+        # 2026-08-24 改造：本 gate 恒运行于 PR 所属仓上下文（pull_request 事件或
+        # required workflow 注入），github.token（job 级 checks:write）足以读写本仓
+        # check run——原 App 令牌铸造路径因 AGENT_APP_SECRET 失效连红三天
+        # （spec-author 2026-08-21 起实测），去除该单点。
         if: steps.specspr.outputs.has_specs == 'true'
         env:
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           REPO: ${{ github.repository }}
-          HAVE_TOKEN: ${{ steps.token.outputs.have_token }}
+          GATE_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           SUMMARY="specs/** 变更 PR：校验 adversary check run"
-          # 无 App 令牌：specs PR 无法审计 → fail-closed（阻断合并）
-          if [[ "$HAVE_TOKEN" != "true" ]]; then
-            echo "::error::specs PR 无 App 令牌，无法校验 adversary check run（fail-closed）"
-            exit 1
-          fi
           CHECKS=$(curl -fsS \
-            -H "Authorization: Bearer $APP_TOKEN" \
+            -H "Authorization: Bearer $GATE_TOKEN" \
             -H "Accept: application/vnd.github+json" \
             "https://api.github.com/repos/$REPO/commits/$HEAD_SHA/check-runs?per_page=100" 2>/dev/null) \
             || CHECKS='{"check_runs":[]}'
@@ -209,7 +179,7 @@ jobs:
           }, sys.stdout)
           PYEOF
           curl -fsS -X POST \
-            -H "Authorization: Bearer $APP_TOKEN" \
+            -H "Authorization: Bearer $GATE_TOKEN" \
             -H "Accept: application/vnd.github+json" \
             "https://api.github.com/repos/$REPO/check-runs" \
             -d @"$RUNNER_TEMP/check_body.json"
