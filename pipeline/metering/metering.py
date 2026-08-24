@@ -254,8 +254,10 @@ def cmd_mkreq(a):
     # provider 参数兼容（显式留痕，不静默）：kimi coding 端点拒绝 temperature/top_p
     # （HTTP 400），锁定档的采样参数在传输层剔除、stderr 注明——计量记录仍按
     # 锁定值归档（意图留痕），请求体与 provider 能力对齐。
-    base = os.environ.get("LLM_BASE_URL", "")
-    if "api.kimi.com" in base:
+    # 精确 host 匹配（CodeQL #92 轮：子串匹配可被 evil.com/api.kimi.com 形态绕过）
+    from urllib.parse import urlparse
+    _host = (urlparse(os.environ.get("LLM_BASE_URL", "")).hostname or "").lower()
+    if _host == "api.kimi.com":
         dropped = [k for k in ("temperature", "top_p") if k in req]
         for k in dropped:
             del req[k]
