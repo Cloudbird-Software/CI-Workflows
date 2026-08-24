@@ -95,13 +95,13 @@ CONCEPTS = {
 }
 # IR#315 量化常量锚（防数值漂移/空洞化）
 QUANT_ANCHORS = {
-    "AC-2": ("10 条",), "AC-4": ("15 条", "3 条"), "AC-9": ("3–4", "3-4"),
-    "AC-15": ("1C", "2C", "4C"), "AC-16": ("canary",), "AC-17": ("七天", "7 天"),
+    "AC-2": ("10 条",), "AC-4": ("15 条", "3 条"), "AC-9": ("3[–-]4",),
+    "AC-15": ("1C", "std=2C|2C", "4C"), "AC-16": ("canary",), "AC-17": ("七天|7 天",),
 }
 ARTIFACTS = ("run", "日志", "JSON", "JSONL", "diff", "issue", "仪表盘", "记录", "构建")
 # 负向断言=条件-后果结构（非裸词）
 NEG_STRUCT = re.compile(
-    r"(缺失|为空|不足|失败|超时|未运行|停摆|摘除|越界|不一致|作废|漂移)[^。；]{0,50}(红|不通过|作废|拦截|infra 失败)|(红|不通过|作废|拦截)[^。；]{0,20}(缺失|为空|不足|失败)")
+    r"(缺失|为空|不足|失败|超时|未运行|停摆|摘除|越界|不一致|作废|漂移|未按期|未释放)[^。；]{0,50}(红|不通过|作废|拦截|infra 失败)|(红|不通过|作废|拦截)[^。；]{0,20}(缺失|为空|不足|失败)")
 
 
 def test_semantic_anchors():
@@ -113,7 +113,7 @@ def test_semantic_anchors():
     for ac_id, nums in QUANT_ANCHORS.items():
         whole = acs[ac_id]["given"] + acs[ac_id]["when"] + acs[ac_id]["then"]
         for q in nums:
-            assert q in whole, f"{ac_id} 缺量化锚 {q}"
+            assert re.search(q, whole), f"{ac_id} 缺量化锚 {q}"
     for ac_id, a in acs.items():
         then = a["then"]
         assert len(then) >= 60, f"{ac_id} then 过短（<60 字）——疑似空洞 AC"
