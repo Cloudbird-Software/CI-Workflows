@@ -96,8 +96,10 @@ jobs:
           fi
           # 补充 PR 自身新增的 ADR 文件（新增 ADR 在合入前不在 main 分支清单中——仅靠
           # 主线清单会误判幽灵 ADR；PR head 的 adr/ 文件同样计入存在性校验）。
+          # jq capture 必须用命名捕获组：无名组 capture 直接报错（archive#17 实测暴露，
+          # 此前被 2>/dev/null 吞掉=PR-head 补充清单恒空——首例 PR-head 新增 ADR 即幽灵误判）。
           PR_ADR_LISTING=$(gh api "$PR_API/files?per_page=100" --paginate \
-            --jq '.[] | select(.filename | startswith("adr/")) | .filename | capture("^adr/(ADR-[0-9]{4}-[^/]+)$") | .captures[0].string' 2>/dev/null)
+            --jq '.[] | select(.filename | startswith("adr/")) | .filename | capture("^adr/(?<f>ADR-[0-9]{4}-[^/]+)$") | .f' 2>/dev/null)
           ADR_LISTING=$(printf '%s\n%s' "$ADR_LISTING" "$PR_ADR_LISTING" | grep -v '^$' | sort -u)
           MISSING=0
           for ref in $( { echo "$PR_TITLE"; echo "$PR_BODY"; } | grep -oE "$ADR_RE" | sort -u ); do
