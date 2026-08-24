@@ -4,6 +4,7 @@
 id 唯一且映射 IR 20 条期望变化、blastRadius/nonGoals 非空、正文条款 ID 唯一。
 """
 import re
+import unittest
 from pathlib import Path
 
 import yaml
@@ -26,11 +27,11 @@ def load_fm():
     return fm, text
 
 
-def test_frontmatter_parses():
+def _check_frontmatter_parses():
     load_fm()
 
 
-def test_acs_complete_and_unique():
+def _check_acs_complete_and_unique():
     acs = load_fm()[0]["acceptanceCriteria"]
     assert len(acs) == IR_ITEM_COUNT, f"AC 数 {len(acs)} != IR 期望变化数 {IR_ITEM_COUNT}"
     ids = [a["id"] for a in acs]
@@ -43,7 +44,7 @@ def test_acs_complete_and_unique():
         assert any(w in a["then"] for w in ("run", "日志", "JSON", "JSONL", "记录", "diff", "issue")),             f"{a['id']} 运行时证据未指向具体工件类型"
 
 
-def test_blastradius_and_nongoals():
+def _check_blastradius_and_nongoals():
     fm = load_fm()[0]
     assert fm["blastRadius"], "blastRadius 为空"
     for b in fm["blastRadius"]:
@@ -51,7 +52,7 @@ def test_blastradius_and_nongoals():
     assert len(fm["nonGoals"]) >= 5, "nonGoals 过少"
 
 
-def test_clauses_unique_and_referenced():
+def _check_clauses_unique_and_referenced():
     text = SPEC.read_text(encoding="utf-8")
     body = text.split("---", 2)[2]
     ids = re.findall(r"^\s*[-\s]*\*{0,2}(INV|BEH|IFACE|BUDGET|DECISION|ASSUMPTION)-\d+\*{0,2}", body, re.M)
@@ -66,7 +67,7 @@ def test_clauses_unique_and_referenced():
             assert ref in ac_ids, f"BEH 引用了未定义的 AC: {ref}"
 
 
-def test_key_ac_artifact_words():
+def _check_key_ac_artifact_words():
     """R3-A H-5：关键 AC 的运行时证据绑定具体工件词（防宽泛词空洞交差）。"""
     fm = load_fm()[0]
     acs = {a["id"]: a["then"] for a in fm["acceptanceCriteria"]}
@@ -114,7 +115,7 @@ def _ngrams(t, n=4):
     return {t[i:i + n] for i in range(max(0, len(t) - n + 1))}
 
 
-def test_no_boilerplate_thens():
+def _check_no_boilerplate_thens():
     """21 条 then 两两 4-gram Jaccard < 0.55——模板句复用即红（J1 攻击面）。"""
     fm = load_fm()[0]
     thens = [a["then"] for a in fm["acceptanceCriteria"]]
@@ -127,7 +128,7 @@ def test_no_boilerplate_thens():
             assert sim < 0.55, "AC-%d 与 AC-%d then 相似度 %.2f——疑似样板复用" % (i + 1, j + 1, sim)
 
 
-def test_given_when_depth():
+def _check_given_when_depth():
     """given>=12 字、when>=8 字——塞词式短 given 即红（J1 攻击面）。"""
     fm = load_fm()[0]
     for a in fm["acceptanceCriteria"]:
@@ -135,7 +136,7 @@ def test_given_when_depth():
         assert len(a["when"]) >= 8, a["id"] + " when 过短: " + a["when"]
 
 
-def test_clause_content_anchors():
+def _check_clause_content_anchors():
     """正文关键条款内容锚——空壳条款即红（J1 攻击面）。"""
     body = load_fm()[1].split("---", 2)[2]
     anchors = {
@@ -149,7 +150,7 @@ def test_clause_content_anchors():
         assert kw in window, cid + " 定义行缺内容锚 " + kw
 
 
-def test_scale_anchors():
+def _check_scale_anchors():
     """规模锚：blastRadius>=12、nonGoals>=8、BEH/INV/IFACE 条款正文各>=12 字。"""
     fm = load_fm()[0]
     assert len(fm["blastRadius"]) >= 12, "blastRadius 过少: %d" % len(fm["blastRadius"])
@@ -177,7 +178,7 @@ FINGERPRINTS = {
 }
 
 
-def test_semantic_fingerprints():
+def _check_semantic_fingerprints():
     fm = load_fm()[0]
     acs = {a["id"]: a["given"] + a["when"] + a["then"] for a in fm["acceptanceCriteria"]}
     for ac, phrases in FINGERPRINTS.items():
@@ -198,7 +199,7 @@ MECH_FINGERPRINTS = {
 }
 
 
-def test_mechanism_fingerprints_and_depth():
+def _check_mechanism_fingerprints_and_depth():
     fm = load_fm()[0]
     acs = {a["id"]: a["given"] + a["when"] + a["then"] for a in fm["acceptanceCriteria"]}
     for ac, ph in MECH_FINGERPRINTS.items():
@@ -210,7 +211,7 @@ def test_mechanism_fingerprints_and_depth():
 
 
 # ---- v7 出身记录完整性（judge-deep J8：amendments 占位糊弄）----
-def test_amendments_provenance():
+def _check_amendments_provenance():
     """每条修订理由须为实质记载（>=20 字且非占位）——出身记录不可糊弄。"""
     fm = load_fm()[0]
     aml = fm.get("amendments") or []
@@ -222,7 +223,7 @@ def test_amendments_provenance():
             assert bad not in reason, "修订理由含占位标记: " + bad
 
 
-def test_semantic_anchors():
+def _check_semantic_anchors():
     fm = load_fm()[0]
     acs = {a["id"]: a for a in fm["acceptanceCriteria"]}
     for ac_id, concept_words in CONCEPTS.items():
@@ -242,7 +243,7 @@ def test_semantic_anchors():
         assert NEG_STRUCT.search(acs[ac_id]["then"]), f"{ac_id} 负向断言非条件-后果结构（裸词不算）"
 
 
-def test_negative_assertions_present():
+def _check_negative_assertions_present():
     """R1-C H-1/H-2/H-4：关键 fail-open 面必须有负向断言（异常/缺失即红）。"""
     fm = load_fm()[0]
     acs = {a["id"]: a["then"] for a in fm["acceptanceCriteria"]}
@@ -253,7 +254,7 @@ def test_negative_assertions_present():
         assert any(w in acs[ac_id] for w in negative_words), f"{ac_id} 缺负向断言（fail-open 缝隙）"
 
 
-def test_blastradius_planned_discipline():
+def _check_blastradius_planned_discipline():
     """R2-C H-2：双向存在性自洽——本仓内非 planned 条目必须真实存在；计划路径必须带 planned。"""
     fm = load_fm()[0]
     root = SPEC.parents[2]  # 仓库根
@@ -270,14 +271,14 @@ def test_blastradius_planned_discipline():
             assert (root / path).exists(), f"非 planned 路径不存在（须标 planned 或补存在）: {path}"
 
 
-def test_decision06_sequence_guard():
+def _check_decision06_sequence_guard():
     """R2-B H-1：DECISION-06 时序护栏存在（ADR-0082 修订落地前多账号不生效）。"""
     body = SPEC.read_text(encoding="utf-8").split("---", 2)[2]
     assert "修订 ADR 落地前不生效" in body, "DECISION-06 缺时序护栏"
     assert "实施证据出现即判红" in body or "使用证据出现即判红" in body, "时序护栏缺判红断言"
 
 
-def test_no_exemption_of_governance():
+def _check_no_exemption_of_governance():
     text = SPEC.read_text(encoding="utf-8")
     # R2-B H-4：黑名单扩为词族（同义替换绕过防护）
     import re as _re
@@ -288,17 +289,64 @@ def test_no_exemption_of_governance():
     assert not hits, f"出现治理豁免措辞词族命中: {hits}"
 
 
+class SpecSuite(unittest.TestCase):
+    """unittest discover 契约（T-14 真实执行面）——逐一驱动 _check_*（单一事实源）。"""
+
+    def test_01_frontmatter(self):
+        _check_frontmatter_parses()
+
+    def test_02_acs_complete(self):
+        _check_acs_complete_and_unique()
+
+    def test_03_blastradius_and_nongoals(self):
+        _check_blastradius_and_nongoals()
+
+    def test_04_clauses_unique(self):
+        _check_clauses_unique_and_referenced()
+
+    def test_05_blastradius_planned(self):
+        _check_blastradius_planned_discipline()
+
+    def test_06_decision06_guard(self):
+        _check_decision06_sequence_guard()
+
+    def test_07_no_exemption(self):
+        _check_no_exemption_of_governance()
+
+    def test_08_semantic_anchors(self):
+        _check_semantic_anchors()
+
+    def test_09_no_boilerplate(self):
+        _check_no_boilerplate_thens()
+
+    def test_10_given_when_depth(self):
+        _check_given_when_depth()
+
+    def test_11_clause_content_anchors(self):
+        _check_clause_content_anchors()
+
+    def test_12_scale_anchors(self):
+        _check_scale_anchors()
+
+    def test_13_mechanism_fingerprints(self):
+        _check_mechanism_fingerprints_and_depth()
+
+    def test_14_amendments_provenance(self):
+        _check_amendments_provenance()
+
+    def test_15_key_ac_artifact_words(self):
+        _check_key_ac_artifact_words()
+
+    def test_16_negative_assertions(self):
+        _check_negative_assertions_present()
+
+    def test_17_semantic_fingerprints(self):
+        _check_semantic_fingerprints()
+
+
 if __name__ == "__main__":
-    # stdlib 执行适配（adversary run-suite.sh 契约：无 pytest 环境可跑）
     import sys as _sys
     if _sys.flags.optimize:
-        # -O 剥离 assert = 恒绿（评审 3840590782）——拒绝在优化模式执行
-        _sys.stderr.write("refusing: python -O strips asserts\n")
+        _sys.stderr.write("refusing: python -O strips asserts (exit 2)")
         _sys.exit(2)
-    import unittest as _unittest
-
-    _suite = _unittest.TestSuite()
-    for _name in sorted(n for n in dir() if n.startswith("test_")):
-        _suite.addTest(_unittest.FunctionTestCase(globals()[_name]))
-    _result = _unittest.TextTestRunner(verbosity=2).run(_suite)
-    _sys.exit(0 if _result.wasSuccessful() else 1)
+    unittest.main(verbosity=2)
