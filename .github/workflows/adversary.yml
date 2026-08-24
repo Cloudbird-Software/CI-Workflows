@@ -7,8 +7,10 @@ name: adversary
 # 攻击失败 → 套件通过考验（绿）；白卷 → exit 3 infra（恒绿防御）。
 # LLM 调用唯一入口 = pipeline/metering/metering-wrapper.sh（ADR-0062，judge-deep
 # 成本入 BUDGET-01）；账本验链后同步 metering-ledger 分支（cost-check 数据源）。
-# 安全语义：adversary 产物是故意生成的不可信代码，judge 步会真实执行——本
-# workflow 跑在一次性 GitHub-hosted runner 上（凭据仅 provider key，无 repo 写权）。
+# 安全语义（2026-08-24 重组）：adversary 产物是故意生成的不可信代码，judge 步
+# 真实执行——egress 加固（harden-runner）部署在受信准备阶段之后、风险窗口起点：
+# 实测其 egress block 会拦 git fetch（本地代理 1ms 拒连×7 轮），故 checkout/pip/
+# gov 脚本拉取全部前置；风险窗口内出向仅放行 LLM endpoint + api.github.com。
 on:
   repository_dispatch:
     types:
@@ -56,26 +58,22 @@ jobs:
       LLM_MODEL: ${{ vars.MODEL1 }}
 
     steps:
-      - name: 出向白名单（仅 github + provider + CNB，INV-06 / AC-13）
-        uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c # v2.21.0
-        with:
-          egress-policy: block
-          # harden-runner allowed-endpoints 为静态列表；LLM endpoint 域名须与 vars.LLM_ENDPOINT 同步维护
-          allowed-endpoints: |
-            github.com:443
-            api.github.com:443
-            objects.githubusercontent.com:443
-            open.bigmodel.cn:443
-            api.kimi.com:443
-            pypi.org:443
-            files.pythonhosted.org:443
-      - name: Checkout 完整代码库 + sparse-checkout 治理规范
+      # ---------- 受信准备阶段（egress 加固窗口之前） ----------
+      - name: Checkout 完整代码库
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false   # 账本同步走显式 GH_TOKEN 的 contents API，不落 git 凭据
-          # 全量 checkout（非 sparse）：sparse+cone-mode:false 组合在 harden-runner
-          # egress block 下 checkout 恒被本地代理拒连（2026-08-24 两轮 dispatch 实测，
-          # 同 allowlist 全量 checkout 通过——IR-E2E 现场结论，回退优化换可用性）
+
+      - name: 拉 gh-app-token.sh（.github 仓，ADR-0044——写回令牌铸造脚本）
+        # 前置于 egress 加固窗口（harden-runner 会拦后续 git fetch）；仅当提供
+        # PR 上下文（dispatch inputs 或 repository_dispatch 载荷）时执行。
+        if: inputs.pr_repo || github.event.client_payload.pr_repo
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: Cloudbird-Software/.github
+          sparse-checkout: scripts/gh-app-token.sh
+          path: gov
+          persist-credentials: false
 
       - name: 校验 repository_dispatch event_type 白名单（不信任 dispatch 载荷）
         if: github.event_name == 'repository_dispatch'
@@ -128,6 +126,18 @@ jobs:
             || { echo "::error::目标目录契约不满足（spec.md + suite/ + run-suite.sh）：$ADV_TARGET"; exit 2; }
           ls -1 "$ADV_TARGET"/suite | head
 
+      # ---------- 风险窗口（egress 加固开始：不可信代码生成与真实执行） ----------
+      - name: 出向白名单（风险窗口：attack/judge/写回/账本，INV-06 / AC-13）
+        # 仅放行 LLM endpoint 与 api.github.com（写回 check run / 账本同步走
+        # contents API）。git fetch 在本窗口被拦——所有 checkout 已前置。
+        uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c # v2.21.0
+        with:
+          egress-policy: block
+          # LLM endpoint 域名须与 vars.LLM_ENDPOINT1 同步维护
+          allowed-endpoints: |
+            api.kimi.com:443
+            api.github.com:443
+
       - name: 攻击（judge-deep 锁定 + 计量 wrapper，ADR-0067/0062）
         env:
           LLM_API_KEY: ${{ secrets.LLM_API_KEY1 }}
@@ -172,20 +182,11 @@ jobs:
           else
             echo "## 恶意合规 adversary 报告：未产出（前置步骤失败）" >>"$GITHUB_STEP_SUMMARY"
           fi
-      - name: verdict 写回 spec PR check run —— 铸 App 令牌（W4-C2 #283，INV-02）
+      - name: verdict 写回 spec PR check run（W4-C2 #283，INV-02）
         # PR 上下文给定时（dispatch inputs 或 repository_dispatch 载荷），把
         # verdict 以 "adversary" check run 挂到 spec PR head——这是 ruleset
         # required check 的闭合点：红队结论不写回就不具合并阻断力。
-        # gh-app-token.sh 属 .github 仓（ADR-0044）：sparse 拉取后按目标仓单仓
-        # 作用域铸造（AG-2）；check 写回仅用 checks:write 面。
-        if: always() && (inputs.pr_repo || github.event.client_payload.pr_repo)
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          repository: Cloudbird-Software/.github
-          sparse-checkout: scripts/gh-app-token.sh
-          path: gov
-          persist-credentials: false
-      - name: verdict 写回 spec PR check run（W4-C2 #283）
+        # App 令牌经 gov/scripts/gh-app-token.sh 单仓作用域铸造（AG-2）；
         # exit 语义透传 check_run_writeback.py：1=insufficient（红，本步失败）/
         # 3=no-attempts（infra 红）/ 0=放行——与攻击步退出码语义一致。
         if: always() && (inputs.pr_repo || github.event.client_payload.pr_repo)
@@ -199,6 +200,7 @@ jobs:
           set -euo pipefail
           f="$RUNNER_TEMP/adversary-report.json"
           [[ -f "$f" ]] || { echo "::error::无判定报告可写回（前置步失败）"; exit 2; }
+          [[ -f gov/scripts/gh-app-token.sh ]] || { echo "::error::gov 脚本未前置拉取（PR 上下文条件在 checkout 步未触发？）"; exit 2; }
           NAME="${PR_REPO#*/}"
           APP_TOKEN=$(REPO="$NAME" CB_APP_ID="$CB_APP_ID" AGENT_APP_SECRET="$AGENT_APP_SECRET" \
                   bash gov/scripts/gh-app-token.sh)
