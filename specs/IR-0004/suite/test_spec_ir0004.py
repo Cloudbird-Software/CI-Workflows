@@ -185,6 +185,28 @@ def test_semantic_fingerprints():
             assert ph in acs.get(ac, ""), ac + " 缺语义指纹: " + ph
 
 
+
+# ---- v6 机制闭环指纹（judge-deep J5/J6 攻防轮：指纹约束提及，机制指纹约束论证闭环）----
+MECH_FINGERPRINTS = {
+    "AC-1": "静默失败", "AC-2": "变异池非空", "AC-3": "GitHub 侧核算",
+    "AC-4": "抽检记录（采纳/驳回", "AC-5": "复算命令", "AC-6": "豁免附 ADR",
+    "AC-7": "弱模型只填语义字段", "AC-8": "并存分工", "AC-9": "双向蕴含聚簇",
+    "AC-10": "第一个通过全部", "AC-11": "性能基准与差分对拍", "AC-12": "契约修订二选一",
+    "AC-13": "适配器只读", "AC-14": "dry-run", "AC-15": "标签与实耗不一致",
+    "AC-16": "无人工判断步骤", "AC-17": "不重复认领", "AC-18": "连续四周",
+    "AC-19": "一次性退休动作", "AC-20": "全链自动流转", "AC-21": "永不进入任何 agent 上下文",
+}
+
+
+def test_mechanism_fingerprints_and_depth():
+    fm = load_fm()[0]
+    acs = {a["id"]: a["given"] + a["when"] + a["then"] for a in fm["acceptanceCriteria"]}
+    for ac, ph in MECH_FINGERPRINTS.items():
+        assert ph in acs.get(ac, ""), ac + " 缺机制闭环指纹: " + ph
+    for a in fm["acceptanceCriteria"]:
+        assert len(a["then"]) >= 120, a["id"] + " then 长度 %d < 120（深度下限）" % len(a["then"])
+
+
 def test_semantic_anchors():
     fm = load_fm()[0]
     acs = {a["id"]: a for a in fm["acceptanceCriteria"]}
