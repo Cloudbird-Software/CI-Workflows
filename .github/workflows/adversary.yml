@@ -76,12 +76,9 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false   # 账本同步走显式 GH_TOKEN 的 contents API，不落 git 凭据
-          sparse-checkout: |
-            governance/
-            specs/
-            pipeline/adversary/
-            pipeline/metering/
-          sparse-checkout-cone-mode: false
+          # 全量 checkout（非 sparse）：sparse+cone-mode:false 组合在 harden-runner
+          # egress block 下 checkout 恒被本地代理拒连（2026-08-24 两轮 dispatch 实测，
+          # 同 allowlist 全量 checkout 通过——IR-E2E 现场结论，回退优化换可用性）
 
       - name: 校验 repository_dispatch event_type 白名单（不信任 dispatch 载荷）
         if: github.event_name == 'repository_dispatch'
