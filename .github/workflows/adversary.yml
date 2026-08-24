@@ -139,6 +139,8 @@ jobs:
           LLM_API_KEY: ${{ secrets.LLM_API_KEY1 }}
           LLM_BASE_URL: ${{ vars.LLM_ENDPOINT1 }}
           LLM_MODEL: ${{ vars.MODEL1 }}
+          # 推理型 provider 长生成超时（见 metering-wrapper LLM_TIMEOUT_S 说明）
+          LLM_TIMEOUT_S: "300"
           ADV_TARGET: ${{ steps.target.outputs.target }}
           ADV_REPLAY: ${{ steps.target.outputs.replay }}
         run: |
