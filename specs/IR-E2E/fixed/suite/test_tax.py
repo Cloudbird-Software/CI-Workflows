@@ -45,6 +45,21 @@ class TestFormula(unittest.TestCase):
                 calculate(income, BRACKETS), reference(income, BRACKETS),
                 places=6, msg=f"income={income}")
 
+    def test_multi_bracket_tables_vs_reference(self):  # S3' 单路径短路克星：换表硬编码必红
+        tables = [
+            [(0, 0.15), (5000, 0.25), (None, 0.35)],
+            [(1000, 0.0), (2000, 0.05), (8000, 0.12), (None, 0.4)],
+            [(0, 0.5), (None, 0.5)],
+            [(3000, 0.0), (10000, 0.1), (None, 0.2)],  # 与主表同构（顺序错位检测）
+        ]
+        rng = random.Random(97)
+        for bi, table in enumerate(tables):
+            for _ in range(60):
+                income = round(rng.uniform(0, 10**6), 2)
+                self.assertAlmostEqual(
+                    calculate(income, table), reference(income, table),
+                    places=6, msg=f"table#{bi} income={income}")
+
     def test_ac5_monotone_and_bounded(self):
         rng = random.Random(67)
         incomes = sorted(round(rng.uniform(0, 10**6), 2) for _ in range(100))

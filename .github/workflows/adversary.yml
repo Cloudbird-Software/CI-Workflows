@@ -33,7 +33,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: adversary-${{ github.event.client_payload.issue || github.ref }}
+  group: adversary-${{ github.event.client_payload.issue || inputs.target || github.ref }}
   cancel-in-progress: false   # 判定报告不并发覆盖（同 target 重跑按序排队）
 
 jobs:
@@ -44,6 +44,7 @@ jobs:
     # 分支所需（同仓 GITHUB_TOKEN——llm-connectivity 同模式）；攻击步本身只读
     permissions:
       contents: write
+      checks: write        # 同仓 spec PR 的 verdict 写回（跨仓仍走 App 令牌，INV-02）
 
     env:
       # 配置面：repository_dispatch 载荷字段通过 env 注入，避免 template-injection
@@ -202,15 +203,22 @@ jobs:
           PR_SHA: ${{ inputs.head_sha || github.event.client_payload.head_sha }}
           CB_APP_ID: ${{ secrets.CB_APP_ID }}
           AGENT_APP_SECRET: ${{ secrets.AGENT_APP_SECRET }}
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           f="$RUNNER_TEMP/adversary-report.json"
           [[ -f "$f" ]] || { echo "::error::无判定报告可写回（前置步失败）"; exit 2; }
           [[ -f gov/scripts/gh-app-token.sh ]] || { echo "::error::gov 脚本未前置拉取（PR 上下文条件在 checkout 步未触发？）"; exit 2; }
-          NAME="${PR_REPO#*/}"
-          APP_TOKEN=$(REPO="$NAME" CB_APP_ID="$CB_APP_ID" AGENT_APP_SECRET="$AGENT_APP_SECRET" \
+          if [[ "$PR_REPO" == "$GITHUB_REPOSITORY" ]]; then
+            # 同仓 spec PR：GITHUB_TOKEN（job 级 checks:write）——cloudbrid-agent
+            # App 令牌无 checks:write（2026-08-24 实测 403）；跨仓仍按 INV-02 走 App 令牌
+            TOKEN="$GITHUB_TOKEN"
+          else
+            NAME="${PR_REPO#*/}"
+          TOKEN=$(REPO="$NAME" CB_APP_ID="$CB_APP_ID" AGENT_APP_SECRET="$AGENT_APP_SECRET" \
                   bash gov/scripts/gh-app-token.sh)
-          args=(--report "$f" --repo "$PR_REPO" --gh-token "$APP_TOKEN")
+          fi
+          args=(--report "$f" --repo "$PR_REPO" --gh-token "$TOKEN")
           [[ -n "${PR_SHA:-}" ]] && args+=(--head-sha "$PR_SHA")
           [[ -n "${PR_NUMBER:-}" ]] && args+=(--spec-pr "$PR_NUMBER")
           python3 pipeline/adversary/check_run_writeback.py "${args[@]}"
