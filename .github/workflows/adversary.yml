@@ -65,7 +65,6 @@ jobs:
             github.com:443
             api.github.com:443
             objects.githubusercontent.com:443
-            api.cnb.cool:443
             open.bigmodel.cn:443
             api.openai.com:443
             api.anthropic.com:443
