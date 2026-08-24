@@ -1,0 +1,159 @@
+version: 1
+# 测试政策（机器可判定）。状态机: active | on_rewrite | on_llm_product | triggered | rejected。
+# placement: gate=每PR | weekly=定时 | pre_release | manual | none
+principles:
+  - "gate <5min；重的周跑"
+  - "每个测试必须映射到风险敞口之一: customer_upgrade_failure | llm_behavior_drift | fake_tests"
+
+active_now:
+  - {id: T-01, name: unit_property_golden, tools: "vitest+fast-check | go test", placement: gate}
+  - {id: T-02, name: race_detection, tool: "go test -race", placement: gate, applies: go}
+  - {id: T-03, name: goroutine_leak, tool: goleak, placement: gate, applies: go, when: long_running_process}
+  - {id: T-04, name: fuzz_seed, tool: "go test -fuzz", placement: "gate(short) + weekly(deep)", when: "parser/importer/protocol code"}
+  - {id: T-05, name: doc_examples, tool: "go Example functions", placement: gate, applies: go}
+  - {id: T-06, name: license_scan, tool: license-checker, placement: gate}
+  - {id: T-07, name: sbom, tool: syft, placement: release}
+  - {id: T-08, name: flaky_governance, tool: "CI-Workflows flaky-retry.sh + .github flaky-sweep",
+     rule: "重试≤retry_max 且入账；失败→通过转移记 flaky 事件；窗口内≥阈值入隔离候选；
+     隔离带过期自动回炉（ADR-0043 参数真源=本文件 flaky_governance 段）"}
+  - {id: T-09, name: differential, tool: "golden fixtures + 双实现回放",
+     placement: gate, note: "重写项目 = gate 必选项"}
+  - {id: T-10, name: mutation, tools: "stryker | go-mutesting", placement: weekly,
+     threshold: "score<60% 的模块 = fake_tests 风险", trend: "趋势比绝对值重要"}
+  - {id: T-11, name: governance_canary, rule: "App 令牌直推 main 必须被拒；被接受=报警",
+     placement: weekly, risk: "守门人自身失效", note: "唯一自指的测试"}
+  - {id: T-12, name: diff_coverage, tool: "CI-Workflows scripts/diff-coverage.py + diff-coverage.yml",
+     placement: gate, threshold: "本次变更行覆盖 ≥80%（diff 口径，等值绿；X-01 拒的是全局口径）",
+     policy: "本文件 diff_coverage 段（ADR-0037）", risk: fake_tests}
+  - {id: T-13, name: test_integrity, tool: "CI-Workflows test-integrity.yml（钉 hash）",
+     placement: gate, rule: "测试篡改四形态直接红（ADR-0035）", note: "P2-1 第一必需门"}
+  - {id: T-14, name: card_bound_test_required, tool: "conductor/verdict 卡绑定测试",
+     placement: gate, rule: "实现 PR 绑定卡后自动走卡对应测试集与已注册 holdout 测试；spec PR 须含 suite/（至少一个非空测试文件且含有效断言）",
+     note: "ISSUE-263 AC-17 / ADR-0061 / ADR-0068"}
+  - {id: T-15, name: intent_backstop, tool: "CI-Workflows pipeline/adversary/intent-backstop.sh",
+     placement: gate, rule: "红队顺带做意图层探索 S6-S8，命中带证据报人裁决；无命中产出落盘记录；白卷不进入失败/锁卡分支",
+     note: "ISSUE-263 AC-16 / ADR-0067 / ADR-0079"}
+
+# diff coverage 门槛参数（ADR-0037，P2-3 .github#88）——T-12 的机器可判定真源。
+# 口径：本次 PR 变更行（unified diff 新增行含修改行，删除行不计）的覆盖率，非全局
+# 覆盖率（全局口径仍按下方 X-01 拒绝——分母可被大 PR 稀释）。执法：CI-Workflows
+# .github/workflows/diff-coverage.yml（caller gate needs 链接入，仅 PR 事件）。
+# 边界语义（#88 T4）: covered/changed ≥ threshold_pct 绿（等值绿）；< 即红（79.9 红）。
+# 本段属 C1 路径——豁免清单/阈值变更必须走 ADR（gate.yml adr-required 拦截），
+# 业务仓 PR 不得自行扩大豁免或放宽阈值。
+diff_coverage:
+  threshold_pct: 80
+  repo_overrides: {}          # 按仓覆盖登记处——caller input 显式阈值须与登记一致，否则红
+  exempt_extensions: [.md, .txt, .rst, .json, .yaml, .yml, .toml, .ini, .cfg, .conf,
+                       .lock, .sql, .html, .css, .svg, .png, .jpg, .jpeg, .ico, .csv,
+                       .baml, .mod, .sum, .tmpl, .j2, .env, .editorconfig]
+  exempt_filenames: [LICENSE, CODEOWNERS, Makefile, Dockerfile, .gitignore, .dockerignore,
+                      .gitattributes, .env.example, conftest.py, .postmerge-smoke-marker]
+  exempt_paths: [vendor/, node_modules/, dist/, build/, coverage/, reports/, .github/,
+                 docs/, golden/, baml_client/, migrations/, alembic/, workspace/,
+                 tests/, "*_test.go", "*_test.py", "*.test.ts", "*.test.tsx",
+                 "*.spec.ts", "*.spec.tsx", "*.pb.go"]
+
+on_rewrite_project:  # Go 重写落地时激活
+  - {id: R-01, name: upgrade_path, rule: "旧版本→新版本真机升级+smoke", placement: pre_release}
+  - {id: R-02, name: rollback, rule: "升级后回滚数据无损", placement: pre_release}
+  - {id: R-03, name: migration_idempotent, rule: "up/down 在真实数据快照验证", placement: pre_release}
+  - {id: R-04, name: config_compatibility, rule: "旧配置喂新二进制行为可预期", placement: pre_release}
+  - {id: R-05, name: fresh_install_smoke, rule: "干净环境装 Release 附件", placement: post_release}
+  - {id: R-06, name: capture_golden_now, rule: "旧系统删除前抓输入/输出 fixtures（不可逆操作，立即执行）"}
+
+on_llm_product:  # LLM 输出进产品时激活
+  - {id: L-01, name: eval_harness, tool: promptfoo, placement: "gate(小回归集)+weekly(全量)"}
+  - {id: L-02, name: semantic_golden, rule: "embedding 距离阈值判漂移，禁精确 diff", placement: gate}
+  - {id: L-03, name: metamorphic, examples: [输入重排→结果集等价, 重试→幂等], placement: gate,
+     rationale: "LLM 无 oracle，测不变关系"}
+  - {id: L-04, name: adversarial_corpus, rule: "注入/越狱语料", placement: weekly}
+  - {id: L-05, name: cost_latency_budget, rule: "token成本+p95延迟趋势报警", placement: weekly}
+  - {id: L-06, name: model_upgrade_differential, rule: "换模型=换实现，golden 集对比", placement: on_change}
+
+triggered:  # 触发式；防止"听起来好就上"
+  - {id: G-01, name: contract_api_drift, tools: "oapi-diff|pact", trigger: first_public_api, placement: gate}
+  - {id: G-02, name: integration_real_deps, tool: testcontainers, trigger: sql_layer_landed, placement: gate}
+  - {id: G-03, name: bench_regression, tools: "go bench+benchstat", trigger: data_intensive_path, placement: weekly}
+  - {id: G-04, name: dast, tool: nuclei, trigger: compose_stack_stable, placement: weekly}
+  - {id: G-05, name: iac_scan, tool: checkov, trigger: terraform_in_use, placement: weekly}
+  - {id: G-06, name: load_test, tool: k6, trigger: customer_perf_complaint, placement: manual}
+  - {id: G-07, name: state_model_test, tools: "rapid|fast-check", trigger: complex_state_entity}
+  - {id: G-08, name: error_path_coverage, trigger: first_public_api, placement: gate}
+
+rejected:  # 翻案需新证据；引用 revisit_when
+  - {id: X-01, name: coverage_threshold_gate, reason: "数字可游戏（全局口径：分母可稀释、塞无关测试可拉高）",
+     alternative: T-10_mutation, revisit_when: "mutation 不可用的语言",
+     note: "ADR-0037 边界：拒绝的是全局覆盖率门槛；diff 口径（T-12，分母=本次变更行）不受该攻击面影响，另立"}
+  - {id: X-02, name: canary_release, reason: "客户本地部署无在线流量", alternative: R-05_smoke, revisit_when: hosted_service}
+  - {id: X-03, name: chaos_engineering, reason: "无 k8s 舰队", alternative: "失败模式写单测(磁盘满/断网/超时)", revisit_when: multi_node_prod}
+  - {id: X-04, name: formal_tla, reason: "无调度器/共识组件", revisit_when: "写分布式协调组件"}
+  - {id: X-05, name: soak_test, reason: "投入产出失衡", alternative: "T-03+G-03", revisit_when: "客户报内存类问题"}
+  - {id: X-06, name: a11y_i18n, reason: "无 UI", revisit_when: "有 Web UI"}
+
+existing:  # 勿重复建设
+  [unit_property_golden, differential(T-09 已active), mutation(T-10), codeql, zizmor,
+   dependency_review, hygiene, dependabot_automerge, provenance_attestation, governance_drift]
+
+# ---- test_integrity（ADR-0035 / .github #86，P2-1）------------------------
+# 机器可执行声明：CI-Workflows .github/workflows/test-integrity.yml 拉取本节并
+# 覆盖检测器内置缺省（同值双源，policy 为准）；本节拉取失败 = gate 红（fail-closed，
+# 非裸奔内置缺省）。regex 级、语言无关；AST 级解析为后续增强（不在 #86 范围）。
+# escape_hatch：命中可经 PR title/body 引用 ADR-NNNN 豁免（存在性校验防幽灵 ADR），
+# 豁免计数入账（job log TI-COUNT escape_hatch_waived + step summary）；P3-2（#96）
+# ADR scope 实质校验落地后升级为 scope 匹配。
+test_integrity:
+  policy_id: T-13
+  placement: gate
+  rules:
+    - {id: TI-R1, name: test_file_deleted, severity: red,
+       note: "真实删除或改名移出测试路径；内容不变的 rename 不算"}
+    - {id: TI-R2, name: assertion_net_decline, severity: red,
+       note: "全 PR 断言净额 < 0 即红；测试文件间迁移（净额不变）不受影响"}
+    - {id: TI-R3, name: suppression_marker_added, severity: red,
+       note: "仅统计新增行；移除抑制标记不触发"}
+    - {id: TI-R4, name: expectation_rewrite, severity: require_adr,
+       note: "测试文件有删改行且零实现文件变更；调为 red 则不可豁免"}
+  patterns:  # ERE；bash =~ 与 grep -E 语义（\b 为 GNU 扩展，ubuntu runner 原生）
+    test_file: '((^|/)(tests?|__tests__|__snapshots__|testdata)(/|$)|_test\.go$|\.test\.[cm]?[jt]sx?$|\.spec\.[cm]?[jt]sx?$|(^|/)test_[^/]*\.py$|_test\.py$|_test\.rs$|\.snap$)'
+    assertion: '\bassert|\bexpect\(|\bexpect\.|\brequire\(|\brequire\.|\bshould\b|\bt\.Error|\bt\.Fatal|\bself\.assert|\bfail_if\(|\bAssert|\bExpect\(|\bRequire\(|\bSo\('
+    suppression: '(^|[^A-Za-z_])([Ss]kip|[Xx][Ff][Aa][Ii][Ll])[[:space:]]*\(|\.skip\b|\.only\b|t\.Skip|mark\.skip|mark\.xfail|@Ignore|@Disabled|\[ignore|\.todo\(|unittest\.skip'
+    non_source: '^(\.github/|docs/|governance/)|(^|/)([^/]*\.md)$|(^|/)(LICENSE|CODEOWNERS|NOTICE|\.gitignore|\.gitattributes)$'
+  fail_closed: true
+
+# ---- flaky_governance 参数（ADR-0043 / .github #94，P2-9）----------------
+# 机器可执行真源：CI-Workflows scripts/flaky-retry.sh 拉取本节（fail-closed）。
+# 语义约束：重试必须入账（无声重试=作弊）；仅"失败→重试通过"转移记 flaky 事件
+# （确定性失败重试全败仍红、不产生记录——真回归不误放）；隔离（tests/quarantine.yaml）
+# 条目含 test/owner/expires/adr，过期自动回炉（governance/flaky-sweep.sh 每日
+# 检测 + 升级 issue）；清单变更走 ADR（adr-required 路径覆盖）。
+flaky_governance:
+  retry_max: 2                 # 自动重试上限（总运行 ≤3）
+  flaky_window_days: 30        # flaky 事件统计窗口
+  flaky_threshold: 3           # 窗口内事件 ≥ 此值 → 隔离候选（自动开 issue 人确认）
+  quarantine_max_days: 30      # 隔离条目最长有效期（到期回炉）
+
+# ---- g060 治理仓锁定（ADR-0061 / ADR-0081 / ISSUE-263 W2-C2, AC-18）----------------
+# specs/*/suite/** 按 IR 分片锁定；CODEOWNER = 验证者 APP + 人类 owner（CODEOWNERS）。
+# 执行：.github/scripts/g060-lock.sh（PR gate 调起，exit 2 阻断 + 自动开裁决 issue）+
+#       .github/scripts/g060-escalation.py（裁决闭环：终态机器可核 + TTL + dead-man）。
+# 跨仓桥接：CI-Workflows scripts/g060-bridge.sh（被治理仓/CI-Workflows 互调）。
+# 本节声明锁定路径模式与授权身份集；执行逻辑以 scripts/ 为准。
+# 本节属 C1 路径——锁定路径模式/授权身份集变更必须走 ADR。
+g060:
+  policy_id: g060-governance-lock
+  placement: gate
+  lock_path_pattern: "specs/*/suite/**"
+  authorized_actors:
+    - owner: randypanding          # 人类 owner
+    - app: verifier-app            # 验证者 APP（ADR-0076/ADR-0080，仅测试/验证路径写权）
+  fail_action: exit2_and_escalate   # 非授权改测试 → exit 2 + 开裁决 issue
+  ttl_hours: 72                    # 裁决 TTL；过期 dead-man 提醒
+  escalation:
+    adopt_cmd: "/g060-adopt"
+    reject_cmd: "/g060-reject"
+    final_state_dir: ".artg060"
+  ir_card: "Cloudbird-Software/.github#274"
+  adr_ref: "ADR-0061 / ADR-0081"
+  ac_ref: "ISSUE-263 AC-18"
+  note: "验证者 APP 在 ADR-0081 合并前无写豁免；合并前仅 owner 可解锁"

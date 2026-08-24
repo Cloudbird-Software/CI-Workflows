@@ -1,0 +1,73 @@
+name: Bug 上报（reproduce 流水线）
+description: 提交一个 bug——打 bug 标签即进 reproduce 阶段（免签）：env-gate + 哨兵自证 + 三值判定（W3-C1 .github#218，ADR-0064）
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Bug 流铁律：**复现前置，签署点后移**（宪法 §3）——区别于 Feature 流的签署前置，
+        本表单提交即触发机器复现，无签署门。判定协议 = SWT-bench F→P 扩展，三值：
+        `reproduced`（base 上稳定 fail，若有 fix 候选则其上 pass）→ 产 failing repro test 待 owner 签；
+        `cannot-reproduce`（base 上 pass）→ **不关单**，保留人裁；
+        `inconclusive`（环境错/超时 30min/翻转）→ 换新环境重试一次，仍不可判定转人裁。
+        同指纹（仓+症状签名+关键栈 sha256）二次上报自动绕过重复 reproduce。
+        注意：**字段标题是机器解析契约**——与 CI-Workflows 仓 `pipeline/bugflow/bugflow.py`
+        的字段常量逐字对齐，改任一侧须两仓同步并引用 ADR-0064。
+  - type: input
+    id: repo
+    attributes:
+      label: 受影响的仓（owner/name）
+      description: 如 Cloudbird-Software/CI-Workflows
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: 版本 / commit
+      description: 出问题时所在版本号或 commit SHA
+    validations:
+      required: true
+  - type: textarea
+    id: symptom
+    attributes:
+      label: 症状签名（一句话 + 关键报错）
+      description: 一句话症状 + 最关键的报错文本——与仓、关键栈一起参与同指纹去重（sha256）
+    validations:
+      required: true
+  - type: textarea
+    id: stack
+    attributes:
+      label: 关键栈（可选）
+      description: 栈顶关键帧（去路径/随机量后的稳定部分）——提高指纹区分度
+  - type: textarea
+    id: steps
+    attributes:
+      label: 复现步骤
+      description: 逐步操作；能写成命令/测试的尽量写进"机器复现用例"
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: 期望结果
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: 实际结果
+    validations:
+      required: true
+  - type: textarea
+    id: env
+    attributes:
+      label: 环境指纹（可选）
+      description: 已知则填——与复现环境对账，不匹配判"不可判定"而非"证伪"（ADR-0064 决策 2）
+      placeholder: |
+        image: sha256:…（基础镜像 digest）
+        lockfile:requirements.txt: sha256:…（依赖 lockfile hash）
+  - type: input
+    id: repro_cmd
+    attributes:
+      label: 机器复现用例（可选）
+      description: "单行命令或测试引用（如 pytest tests/test_x.py::test_y）；多步用例先落脚本文件后在此引用。用例需输出 REPRO_OUTCOME: pass|fail 标记断言语义"

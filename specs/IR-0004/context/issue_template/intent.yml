@@ -1,0 +1,73 @@
+name: 意图（IR）
+description: 提交一条意图——owner 签署（state:ir-signed）后进入 spec 阶段（IR-0001 / IFACE-01，ADR-0047）
+labels: [type:intent]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        IR schema v1 九字段全必填。签署 = owner 打 `state:ir-signed`（或评论 /start）；
+        此后由 conductor 自动路由，无需人类做状态操作（BEH-01）。
+        本 issue 为 append-only 意图账本：签署后只追加评论/erratum，不编辑正文。
+  - type: textarea
+    id: job
+    attributes:
+      label: job（要完成的待办）
+      description: 一句话说清要完成什么——这是 spec-author 唯一的任务锚点
+    validations:
+      required: true
+  - type: textarea
+    id: trigger_scenarios
+    attributes:
+      label: 触发场景
+      description: 什么场景下需要这个东西
+    validations:
+      required: true
+  - type: textarea
+    id: pain_evidence
+    attributes:
+      label: 当前痛点的证据
+      description: 可指向 issue/PR/日志/账单等客观事实，不接受纯感受
+    validations:
+      required: true
+  - type: textarea
+    id: expected_changes
+    attributes:
+      label: 期望的可观察变化（验收时能在线上看到的事实）
+      description: 逐条列出——将来逐条变成 spec 的 AC
+    validations:
+      required: true
+  - type: textarea
+    id: nongoals
+    attributes:
+      label: 非目标（NONGOAL）
+      description: 明确不做什么，防止镀金
+    validations:
+      required: true
+  - type: textarea
+    id: constraints
+    attributes:
+      label: 约束 / 不可违反项
+      description: 铁律（如治理规则、预算、安全边界）
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance_evidence
+    attributes:
+      label: 人类愿意接受的验收证据
+      description: 什么样的记录/链路能让你签收
+    validations:
+      required: true
+  - type: textarea
+    id: reversibility
+    attributes:
+      label: 可逆性偏好
+      description: 出问题时的回退形态（整体停用/逐步回滚/可接受不可逆）
+    validations:
+      required: true
+  - type: textarea
+    id: quality_speed_knobs
+    attributes:
+      label: 质量-速度旋钮
+      description: 质量优先还是速度优先；可接受的降级面
+    validations:
+      required: true

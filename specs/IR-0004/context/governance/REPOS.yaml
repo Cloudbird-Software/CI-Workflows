@@ -1,0 +1,150 @@
+version: 1
+org: Cloudbird-Software
+# ============================================================================
+# 组织地图（repo registry）—— 一文件看清治理版图
+# 目的: 结构层导航（人/AI 不必逐仓打开即知全貌）+ 漂移检测锚点。
+#       替代 submodule 方案：无指针过期、无 recursive clone 问题。
+# 规则（GM-4）:
+#   - 线上存在的仓必须在下方申报；未申报 = drift（drift-check §7b）
+#   - status: active 的仓必须存在且 visibility 一致（drift-check §7a）
+#   - status: planned = 尚未建仓（不参与检测）；exempt = 申报但不治理（仅豁免治理基线，不豁免可见性）
+#   - 全仓公开政策（ADR-0020）：一切仓 visibility 必须 public（drift-check §7a 申报侧 + §7c 线上全量侧，含未申报仓）
+#   - 新仓初始化后必须申报入图（flows.new_repo step 4）
+# ============================================================================
+layers:
+  L0: 标准与治理（intent：GOVERNANCE / 标准 schema / 工作流实现）
+  L1: 注册条目（声明：agent / skill / tool / team / 模型别名 / ADR）
+  L2: 实现（代码：框架、工具、业务项目）
+  L3: 数据（不进 git：事件流 / 轨迹 / 团队运行态）
+
+repos:
+  - name: .github
+    layer: L0
+    visibility: public
+    status: active
+    role: 治理总仓——GOVERNANCE/rulesets/expected-state/policies/agent 标准 schema/初始化与漂移脚本
+    key_paths: [governance/, standards/agent/, scripts/, specs/]
+    entry_protocol: true   # AGENTS.md 携带统一入口协议块（宪法 §11；drift §17 对账，ADR-0055）
+
+  - name: CI-Workflows
+    layer: L0
+    visibility: public
+    status: active
+    role: 可复用工作流仓——全部项目仓 gate 的唯一实现，业务仓引用 @v1
+    key_paths: [.github/workflows/, pipeline/]
+
+  - name: agent-registry
+    layer: L1
+    visibility: public
+    status: active
+    role: 注册层——agent/skill/tool/team 声明 + 模型注册表(models.yaml) + ADR；AR-2 状态门禁校验器
+    key_paths: [registry/, decisions/, standards/, scripts/validate.py, scripts/simulate-wave.py]
+                                      # ADR-0021：standards/（协作标准）与 simulate-wave.py（CI required
+                                      # 门禁，ADR-0015）此前不在组织地图——门禁自身逃逸治理地图
+    policies: [agent_runtime]
+
+  - name: archive
+    layer: L1
+    visibility: public
+    status: active
+    role: 记忆层——ADR 归档正本（append-only，字节保真）+规划回归集+事件 JSONL+红队报告
+      落位（宪法 §1/§13 推论二，W1-C1 .github#164/ADR-0053）；ADR 状态真源=agent-registry
+      decisions/INDEX.yaml 墓碑索引（ADR-0053）
+    key_paths: [adr/, scripts/verify_migration.py]
+
+  - name: template-service
+    layer: L2
+    visibility: public
+    status: active
+    role: 项目模板仓——新仓由此派生，自动继承 gate/护栏/AGENTS.md 骨架；统一入口协议块下发真源（ADR-0055）
+    key_paths: [AGENTS.md, .github/workflows/ci.yml, docs/ARCHITECTURE.md]
+    entry_protocol: true   # 协议块真源自身（drift §17 以其 main 的块为 canon 比对，ADR-0055）
+
+  - name: agent-tools
+    layer: L2
+    visibility: public
+    status: active
+    role: 自研工具实现仓——被 tool 声明的 implementation 字段引用（ADR-0021：approved 工具
+      gitcode-pr 引用本仓，planned=悬空供应链引用；已按 flows.new_repo 从 template-service
+      派生并跑 new-repo-init）
+  - name: agent-platform
+    layer: L2
+    visibility: public
+    status: active
+    role: 执行层仓——agent-registry 声明渲染到 openjiuwen/jiuwenswarm 运行时（ADR-0025）：
+      渲染器/SwarmFlow workflow 编译器/机制原型执行面/TUI 可观测+agentctl 干预/渲染漂移门禁；
+      Python 仓（languages.yaml PY-* 规则，声明适配现实——openjiuwen SDK 为 Python）
+    key_paths: [src/agentplatform/, tests/, docker/, Makefile]
+
+  - name: arbiter
+    layer: L2
+    visibility: public
+    status: active
+    role: 仲裁内核——确定性裁决/CAS 租约/防重放台账（宪法 §1）；无 LLM、默认拒绝、
+      自带测试与误放行台账（ADR-0054）
+    key_paths: [arbiter/, capabilities.yaml, tests/]
+
+  - name: Shorts_Director
+    layer: L2
+    visibility: public
+    status: active
+    role: 产品仓——短视频导演工具（ADR-0021：线上存在但未申报=GM-4 漂移，补申报；治理面
+      随首个正式 PR 落地 AGENTS.md/CODEOWNERS 接入）
+
+  - name: Script_Writer
+    layer: L2
+    visibility: public
+    status: active
+    role: 产品仓——剧本创作工具（ADR-0021：建仓未申报=GM-4 漂移，补申报；治理面随首个
+      正式 PR 落地 AGENTS.md/CODEOWNERS 接入，路径同 Shorts_Director）
+
+  - name: Use-up-Plan
+    layer: L2
+    visibility: public
+    status: active
+    role: 产品仓——AI 多 plan 额度管理与路由调度工具（额度审计/规则标准化描述/最优
+      分配求解/实时切换；立项意图见仓内 Intent.md，ADR-0024 申报入图+bootstrap 直推
+      豁免；README 待首个正式 PR 脱离模板文案）
+
+  - name: AI_Web_School
+    layer: L2
+    visibility: public
+    status: active
+    role: 产品仓——小学语数英个性化练习平台（Python/FastAPI 存量栈，语言准入按 ADR-0023
+      存量豁免，仅面向新服务选型）；治理面已接入：gate（CI-Workflows@v1 聚合）/automerge/
+      scorecard/CODEOWNERS/dependabot + App 挂载（AG-4）+ production environment（RL-1）
+
+  - name: mutual
+    layer: L2
+    visibility: public
+    status: active
+    role: 产品仓——LLM 双向互惠推荐引擎（Go+BAML 重写，ADR-0027；源自 gitcode.com/feasylol/mutual
+      存量 Python 项目：11 阶段流水线 / NSW 匹配 + envy-freeness / HR@K/NDCG@5 评测门禁；
+      Python 基线为一次性存量导入豁免——仅作重写参照与 golden fixtures 来源，重写合并后
+      语言面收敛为 Go+BAML）
+    key_paths: [src/mutual/, spec/, tests/golden/]
+
+  - name: holdout
+    layer: L1
+    visibility: public
+    status: active
+    role: 试卷层——封存验收场景+golden+泄漏诱饵（宪法 §1/§4B，IR-0003 W1-C4 .github#167，
+      ADR-0056/ADR-0080）；owner 直管；cloudbrid-agent 严禁挂载，验证者 APP 可挂载并
+      仅用于测试/验证路径写权（DECISION-02 隔离不变量，drift-check §18 断言）
+    key_paths: [entries/, schema/, canary/]
+
+# 上游依赖（不属于本组织；不 fork、不 submodule）
+# 治理方式：声明于此 + 部署渲染时 clone 并 pin tag（ADR-0002 rev1）
+external_upstreams:
+  - name: openjiuwen-runtime
+    repo: openJiuwen-ai/jiuwenswarm
+    role: 多智能体编排框架运行时（AgentServer/Gateway/Team/权限引擎/A2A）
+    consumed_by: [agent-registry 的声明渲染]
+  - name: openjiuwen-sdk
+    repo: openJiuwen-ai/agent-core
+    role: agent 内核 SDK（openjiuwen：DeepAgent/TeamAgent/SwarmFlow 引擎；PyPI 钉版消费，ADR-0025）
+    consumed_by: [agent-platform 渲染产物/ArchetypeWorkerBackend/治理 rails]
+  - name: openjiuwen-a2x
+    repo: openJiuwen-ai/agent-protocol
+    role: A2X 注册中心（分布式 Team 控制面）
+    consumed_by: [分布式 team 部署]

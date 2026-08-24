@@ -1,0 +1,245 @@
+version: 1
+org: Cloudbird-Software
+# ============================================================================
+# 组织治理总声明（single source of truth）
+# 读法（AI）: 本文件声明"治理什么"（intent）与"验证方式"（verify），
+#             platform 段声明"在某平台怎么实现"。迁移平台 = 改 platform 段，
+#             intent/verify 不动。所有字段机器可判定，无散文。
+# strength: enforced=平台强制 | monitored=自动检测漂移 | advisory=约定
+# ============================================================================
+risk_posture:  # 全部措施的优先级依据
+  - customer_upgrade_failure   # 客户本地部署，升级/回滚炸=收入损失
+  - llm_behavior_drift         # 产品核心是 LLM
+  - fake_tests                 # agent 生成测试的同义反复风险
+  - supply_chain               # 公开仓库，依赖即攻击面
+  - identity_scope            # agent 凭据过度授权
+
+domains:
+
+  source_control:
+    measures:
+      - id: BP-1
+        intent: "默认分支仅经 PR+squash 进入；禁删/force-push；线性历史"
+        strength: enforced
+        platform: {github: {mechanism: org-ruleset, name: main-protection, definition: rulesets/main-protection.json}}
+        verify: {method: drift-check, frequency: daily}
+      - id: BP-2
+        intent: "合并前置：双轨 required check = gate（本地聚合）+ org-gate（中心仓钉点审判，PR 改不到审判源——P3-1/ADR-0046；观察期双轨，一致率 100% 后退役本地轨须新 ADR）"
+        strength: enforced
+        platform: {github: {mechanism: ruleset-required-status, context: "gate+org-gate", central_pin: "org-required-workflows ruleset → CI-Workflows@2d368c29f170eab43b83f6b866f76fad3774fba9:.github/workflows/org-gate.yml"}}
+        verify: {method: "drift-check §1（ruleset 文本对账）+ §15（钉点 commit 绑定）", frequency: hourly}
+      - id: BP-3
+        intent: "发布标签 v* 不可删除/覆盖"
+        strength: enforced
+        platform: {github: {mechanism: org-ruleset, name: release-tags, definition: rulesets/release-tags.json}}
+        verify: {method: drift-check, frequency: daily}
+      - id: BP-4
+        intent: "仓库基线：squash-only、合并删分支、auto-merge 开、wiki/projects 关"
+        strength: enforced
+        platform: {github: {mechanism: repo-settings, apply: apply.sh#step5, state: "expected-state.json#repo_baseline"}}
+        verify: {method: "drift-check §4（repo settings 对账：squash/merge/rebase/delete-branch/allow_auto_merge，ADR-0029）", frequency: hourly}
+      - id: BP-5
+        intent: "成员不可建仓；成员默认权限 read"
+        strength: enforced
+        platform: {github: {mechanism: org-settings, fields: [members_can_create_repositories=false, default_repository_permission=read]}}
+
+  ci_gate:
+    measures:
+      - id: CI-1
+        intent: "每 PR：lint+arch+test+hygiene+dep-review 聚合为 gate"
+        strength: enforced
+        platform: {github: {mechanism: reusable-workflows, repo: CI-Workflows, caller: template-service/.github/workflows/ci.yml}}
+      - id: CI-2
+        intent: "Actions 仅允许：github 官方+已验证+白名单（zizmor/astral-sh/dependabot/docker/softprops/org 自有）"
+        strength: enforced
+        platform: {github: {mechanism: actions-permissions, state: expected-state.json#actions_policy}}
+        verify: {method: drift-check, frequency: daily}
+      - id: CI-3
+        intent: "GITHUB_TOKEN 默认只读；不允许 Actions 批准 PR"
+        strength: enforced
+        platform: {github: {mechanism: workflow-permissions, state: expected-state.json#actions_policy}}
+      - id: CI-4
+        intent: "工作流安全静态审计（zizmor medium+ 拦截）"
+        strength: enforced
+        platform: {github: {mechanism: hygiene-job, part_of: CI-1}}
+      - id: CI-5
+        intent: "契约兼容性检测门：OpenAPI/JSON Schema breaking 变更须 ADR 引用；DB migration destructive DDL 须 ADR + downgrade 逆操作；policy 声明路径与实际文件对账（失明即红）"
+        strength: enforced
+        platform: {github: {mechanism: reusable-workflows, repo: CI-Workflows, workflow: contract.yml, policy: "governance/policy/contracts.yaml"}}
+        verify: {method: "contract-selftest（CI-Workflows ci.yml，卡内 T1-T7 fixture 全套）+ 声明路径失明防护红测（T6）"}
+
+  supply_chain:
+    measures:
+      - id: SC-1
+        intent: "CodeQL 告警 medium+ 阻断合并"
+        strength: enforced
+        platform: {github: {mechanism: org-ruleset, name: codeql-gate, definition: rulesets/codeql-gate.json}}
+      - id: SC-2
+        intent: "安全配置(GitHub recommended)为全部新仓默认"
+        strength: enforced
+        platform: {github: {mechanism: code-security-default, config_id: 17, scope: all}}
+        verify: {method: apply-idempotent, note: "API 只写，读不到，由 apply.sh 每次强制"}
+      - id: SC-3
+        intent: "依赖周更；minor/patch 过 gate 自动合并；major 留人"
+        strength: enforced
+        platform: {github: {mechanism: dependabot+automerge, config: "template-service/.github/dependabot.yml + workflows/automerge.yml"}}
+      - id: SC-4
+        intent: "构建产物附 provenance attestation + SBOM"
+        strength: enforced
+        platform: {github: {mechanism: release-workflow, uses: actions/attest-build-provenance, sbom: policy/testing.yaml#T-07}}
+
+  agent_identity:
+    measures:
+      - id: AG-1
+        intent: "开发身份唯一（cloudbrid-agent）+ 验证者身份独立（新设验证者 APP，仅测试/验证路径写权）"
+        strength: enforced
+        platform: {github: {mechanism: github-app, id: 4632704, state: expected-state.json#github_app}}
+        verify: {method: drift-check, frequency: daily}
+      - id: AG-2
+        intent: "App 令牌：单仓库作用域、1h 过期、磁盘不落长期凭据"
+        strength: enforced
+        platform: {github: {mechanism: script, entry: scripts/gh-app-token.sh}}
+      - id: AG-3
+        intent: "App 受全部 ruleset 约束（bypass 仅 OrganizationAdmin——App 非 admin 无 bypass）；CI 合并用 App 令牌（触发下游 workflow）"
+        strength: enforced
+        verify: {method: "drift-check §1（bypass_actors 对账）+ 季度人工负向复核", frequency: hourly}
+      - id: AG-4
+        intent: "App 安装范围 selected；新仓初始化自动挂载"
+        strength: monitored
+        platform: {github: {mechanism: installation, add_repo: scripts/new-repo-init.sh#step3}}
+
+  release:
+    measures:
+      - id: RL-1
+        intent: "production 环境：人工审批 + 仅受保护分支可部署"
+        strength: enforced
+        platform: {github: {mechanism: environment, name: production, apply: new-repo-init.sh#step2}}
+
+  governance_meta:
+    measures:
+      - id: GM-1
+        intent: "期望状态落盘；小时级漂移检测（ADR-0020：可见性盲区 24h→1h）；漂移自动开 issue；漂移消除自动关闭 issue（防陈旧报告累积噪音）；基础设施故障（token 缺失/API 不可达）与漂移分通道报告（ADR-0021）"
+        strength: monitored
+        platform: {github: {mechanism: workflow, file: .github/workflows/governance-drift.yml, cron: "0 * * * *"}}
+        verify: {method: self, state: expected-state.json}
+      - id: GM-2
+        intent: "治理仓变更一律走 flows.governance_change 分级流程（C1 附 ADR / C2 过 validate / C3 走 PR）；破玻璃=直推后 24h 内回填；owner 与 AI 同受约束"
+        strength: enforced
+        verify: {method: drift-check, part: section-8, frequency: hourly}
+      - id: GM-3
+        intent: "政策文件机器可判定（本目录）；agent 按需读取，不常驻上下文"
+        strength: advisory
+        files: [policy/languages.yaml, policy/testing.yaml]
+      - id: GM-4
+        intent: "组织地图 REPOS.yaml 声明全部仓（层级/角色/可见性/状态）：结构层导航的唯一入口；线上未申报仓=漂移；active 仓存在性与 visibility 一致；全仓公开政策（ADR-0020）——组织下一切仓必须 public，申报侧与线上全量侧双重检测，exempt 不豁免可见性；新仓初始化后必须申报入图（见 flows.new_repo）"
+        strength: enforced
+        files: [REPOS.yaml]
+        verify: {method: drift-check, part: section-7, frequency: hourly}
+
+  context_governance:
+    measures:
+      - id: CG-1
+        intent: "AGENTS.md ≤30 行索引型：命令+硬规则+索引表；细节在按需读文件"
+        strength: advisory
+      - id: CG-2
+        intent: "基建路径（.github/ Makefile arch 配置）变更显式归属 owner"
+        strength: advisory
+        platform: {github: {mechanism: CODEOWNERS, file: .github/CODEOWNERS}}
+      - id: CG-3
+        intent: "agent 工具/技能定义放仓库不放本地（可审计防漂移）"
+        strength: advisory
+
+  agent_runtime:
+    # 标准本体: standards/agent/{tool,skill,agent,team,event}.schema.yaml
+    # 注册条目: Cloudbird-Software/agent-registry
+    measures:
+      - id: AR-1
+        intent: "agent/skill/tool/team 四类声明 + 模型注册表唯一落盘 agent-registry；本地运行目录仅为部署产物；运行实例可追溯到声明+版本"
+        strength: enforced
+        platform: {github: {mechanism: repo, name: agent-registry, validate: agent-registry/scripts/validate.py}}
+        verify: {method: registry-validate, on: PR}
+      - id: AR-2
+        intent: "引用 status!=approved 的注册条目 = CI 拒绝；proposed→approved 必须走 PR"
+        strength: enforced
+        platform: {github: {mechanism: script, entry: agent-registry/scripts/validate.py}}
+      - id: AR-3
+        intent: "模型接入一律经 LLM Gateway：声明只引用 alias；provider key 仅存 gateway secret store；任何仓库/agent 配置零明文 key。第一期形态（IR-0001 DECISION-01/ADR-0048）——无 gateway 时允许直连 provider API，key 仅存 org secret LLM_API_KEY（expected-state §5 登记存在性），一切调用经 CI-Workflows 计量 wrapper（scripts/llm-call.sh）落盘用量；alias 语义与 AR-8 不变，回切触发条件见 ADR-0048"
+        strength: enforced
+      - id: AR-4
+        intent: "agent 凭据最小权限：per-agent/per-team 作用域 token（衔接 AG-1）；声明中只写 env 引用"
+        strength: enforced
+      - id: AR-5
+        intent: "双层控制：软引导（AGENTS.md/identity/skill 正文）+ 硬边界（工具面裁剪→权限引擎→凭据→平台防线）；冲突时硬控制优先；拦截记录进事件流"
+        strength: enforced
+      - id: AR-6
+        intent: "团队必须声明 lifecycle；ephemeral 团队 archive_to+team 侧 handoff 全部完成才允许销毁（stewardship 侧项由 curator 异步消费归档资产执行，不阻塞销毁——红队 #18 措辞对齐，ADR-0016）；persistent 团队（team:stewardship——ADR-0004 规划名 governance-core 的落地形态）对治理资产持续负责"
+        strength: enforced
+        platform: {github: {mechanism: script, entry: agent-registry/scripts/validate.py, check: lifecycle}}
+      - id: AR-7
+        intent: "过程数据三分离：声明/决策→git(registry/ADR)；事件→数据层(JSONL 起步)；原始轨迹→对象存储滚动30天；项目仓仅 AGENTS.md+team 引用行"
+        strength: enforced
+        schema: standards/agent/event.schema.yaml
+      - id: AR-8
+        intent: "agent 必须声明 archetype（九 LLM 原型封顶：builder/planner/test-author/judge/curator/adversary/researcher/deployer/responder + 六机制原型不实例化，ADR-0010）；builder↔test-author、planner↔builder 不得同一声明；test-author/judge 族级独立（models.yaml family）；新增原型须 ADR 论证"
+        strength: enforced
+        validate: agent-registry/scripts/validate.py
+      - id: AR-9
+        intent: "可信交付=失败可见：agent 内 guardrails → test-author 出题（owner 已批验收示例→冻结测试树）→ verifier 机制判卷（required check）→ persistent 团队外部审计（escape review/控制测试）→ 平台防线兜底；builder 永不自我信任；意图保真靠 owner 批验收示例（intent ratification）"
+        strength: enforced
+        validate: agent-registry/scripts/validate.py
+      - id: AR-10
+        intent: "红队守门 Veto 强制力：红队审计 verdict=insufficient 时状态变为 needs-human 且无法进入 wave-planned；specs/** 路径 PR 必须包含 adversary check；开发实现路径 PR 按 EXPECTED_SKIP 模式条件化豁免"
+        strength: enforced
+        platform: {github: {mechanism: ruleset-required-status, context: "adversary", workflow: "CI-Workflows/.github/workflows/adversary*.yml"}}
+        verify: {method: adversary-run, on: PR}
+
+flows:
+  governance_change:
+    # 治理仓（.github governance|standards、agent-registry、CI-Workflows workflows/）内容变更的唯一合法路径
+    # 授权凭证 = ADR + PR 记录；破玻璃保留但被监控
+    classes:
+      - id: C1
+        scope: ["governance/（整目录——含 GOVERNANCE/REPOS.yaml、rulesets、expected-state、apply/drift 脚本、policy）", standards/, models.yaml, decisions/, scripts/, ".github/（CI 门禁自身——改门禁=改治理）", CODEOWNERS, profile/, "tests/（agent-registry 验证器元测试——验证器之验证）", "template-service 脚手架面（.github/、AGENTS.md、Makefile、docs/、zizmor.yml——供应链入口：模板防线被污染=全部新仓继承后门，红队修复 P0；src/ 业务面属 C3。ADR-0021 收敛范围：整仓 C1 会与 SC-3 依赖 automerge 冲突——依赖 PR 无 ADR 不可自动合并）"]
+        requires: [PR, "ADR（新建或引用编号）", "drift-check 本地预检", owner-merge]
+        rationale: "治理意图变更必须可追溯到一个决策记录；无 ADR 不合并。scope 与机器执法路径全集一致（.github gate：governance/standards/scripts/.github/CODEOWNERS/profile；agent-registry validate：standards/decisions/scripts/.github/CODEOWNERS/tests——评审项：声明与执行不得互斥）；template-service 的脚手架面是新仓派生源头，视同治理意图变更（gate adr-required 机器检查 + owner-only review；ADR-0021 范围收敛后与 CI-Workflows ci.yml 的 C1 路径判定一致）"
+      - id: C2
+        scope: [agent-registry/registry/, 业务仓 AGENTS.md/CODEOWNERS]
+        requires: [PR, "validate.py 通过"]
+      - id: C3
+        scope: [文档/注释/README/模板]
+        requires: [PR]
+    break_glass:
+      rule: "紧急回滚允许 admin 直推（ruleset bypass），24h 内必须补：回填 PR + ADR + 在漂移 issue 说明原因"
+      detection: "drift-check §8：策略生效日之后默认分支的非 PR commit = 漂移"
+    policy_effective: "2026-08-19T00:00:00Z"
+  new_repo:
+    steps:
+      - {cmd: "gh repo create <org>/<name> --template <org>/template-service --public --clone"}
+      - {cmd: "bash new-repo-init.sh <name>", effects: [BP-4, RL-1, AG-4]}
+      - {pr: "申报入 governance/REPOS.yaml（name/layer/visibility/role/status:active）", policy: GM-4}
+      - {pr: "首PR：按 policy/languages.yaml 选型 + dep-cruise 边界规则 + 模块 AGENTS.md"}
+  rewrite_project:  # 如 Go 重写
+    rules:
+      - {step: 1, action: "走 new_repo 流程建仓（不塞旧仓）"}
+      - {step: 2, action: "骨架 PR 先行：目录+边界 lint 规则+空实现", gate: CI-1}
+      - {step: 3, action: "模块逐 PR，各带契约测试", limit: "每 PR 单一模块"}
+      - {step: 4, action: "旧系统立即抓 golden fixtures（不可逆）", policy: R-06}
+      - {step: 5, action: "差分 job 进 gate", policy: T-09}
+      - {step: 6, action: "mutation 周跑盯 score", policy: T-10}
+      - {step: 7, action: "v2 发布走环境审批+升级/回滚测试", policies: [RL-1, R-01..R-05]}
+  agent_team_lifecycle:
+    rules:
+      - {step: 1, action: "从 agent-registry 声明实例化 team（引用 id@version）", gate: AR-1}
+      - {step: 2, action: "运行期事件按 event.schema 追加到数据层；拦截记录 tool_called.denied_by", policies: [AR-5, AR-7]}
+      - {step: 3, action: "ephemeral 完成→执行 team 侧 handoff：artifacts 走 PR、retrospective、轨迹归档（销毁前置只含 team 侧项）", policy: AR-6}
+      - {step: 4, action: "persistent 团队（team:stewardship）消费归档资产异步执行 stewardship 侧 handoff（memory-distill/adr-write）并审核入库；完成态审计走事件流——run_finished.handoff_done 仅表达 team 侧销毁前置完成，stewardship 侧由 handoff_step(side=stewardship_side) 事件逐项留痕（评审项：单一布尔无法承载双侧完成态）", policy: AR-6}
+
+portability:
+  neutral: [intent, strength, verify, risk_posture, flows]  # 平台无关，直接搬运
+  platform_bound:  # 迁移时需重写映射的机制
+    org-ruleset:        {gitlab: protected-branches+push-rules, gitea: branch-protection}
+    code-security-default: {gitlab: dependency-scanning+sast-templates}
+    github-app:         {gitlab: project-access-token+deploy-tokens, generic: fine-grained-pat}
+    environment:        {gitlab: protected-environments}
+    reusable-workflows: {gitlab: includes, generic: shared-ci-scripts}
+  migration_rule: "换平台 = 重写 platform 段 + apply/drift 脚本；intent/verify/flows 原样保留"

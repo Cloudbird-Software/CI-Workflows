@@ -1,0 +1,77 @@
+version: 1
+# ============================================================================
+# automation-limits.yaml —— 无人值守自动化生存护栏（auto-fix 上限 + 额度/成本熔断）
+# 真源: 本文件（阈值声明）；执行: governance/auto-fix-limit.sh + governance/cost-check.sh
+#       （.github/workflows/auto-fix-limit.yml / cost-check.yml 周期调用）
+# 决策: ADR-0040（P2-8，.github issue #93 / 计划 #81）
+# 注: 熔断标志（org 变量 AUTO_MERGE_DISABLED）是运行态标志，刻意不纳入
+#     expected-state.json——置位/复位是运行动作而非期望状态，纳入会造成
+#     "人工复位后 drift-check 反向改回去"的对账冲突（ADR-0040 后果节）。
+# ============================================================================
+
+auto_fix:
+  # 修复循环上限：PR 的 gate 失败次数达到 max_attempts → 撤 auto-merge + 关 PR + 开 issue
+  max_attempts: 3
+  # 计数对象：required check 名（BP-2，全组织统一 gate）
+  check_name: gate
+  # 默认作用域：agent 身份（AG-1 App slug）创建的 open PR；其他 PR 打 opt_in_label 纳入同路径
+  # （脚本按 slug 宽容匹配 REST "<slug>[bot]" 与 GraphQL "app/<slug>" 两种作者登录名形态）
+  author: cloudbrid-agent
+  opt_in_label: auto-fix-loop
+  # 视为一次失败尝试的 check run 结论（取每 commit 最新一次 gate run）
+  # fail-closed 方向：多计早关优于少计烧额度；非头 commit 上的未完成（null）亦计
+  failed_conclusions: [failure, timed_out, startup_failure, cancelled]
+  # 超限处置标记（打在目标仓 PR 上 / 说明 issue 打在 .github 仓）
+  exhausted_label: auto-fix-limit-exhausted
+  issue_label: auto-fix-limit
+
+cost:
+  # Actions 分钟月预算（声明值，非账单——全仓公开计费净额 $0，此处防的是失控烧穿速率；
+  # 当月用量 = /orgs/{org}/settings/billing/usage 按 product=actions & unitType=Minutes 汇总）
+  actions_minutes:
+    # BUDGET-03（spec IR-0001 v3，PR#129，owner 已拍板）：Actions 分钟本期不设上限
+    # ——2026-08-21 曾按旧值 20000 在故障指标上误触 P0 硬停（#149 用量不可知+
+    # billing 端点 410），按 spec 明示的 C1 调整路径改为等效无上限大数。
+    # 恢复上限=回改本值（ADR-0040 复位流程不变）。
+    quota_per_month: 200000000
+    warn_pct: 80        # ≥80% 开告警 issue（同日去重，不硬停）
+    hardstop_pct: 100   # ≥100% 置熔断 + 撤全部 open PR auto-merge + P0 issue
+  # LLM token 月预算（W2-C3 .github#216，ADR-0062：数据源接入——CI-Workflows
+  # pipeline/metering 计量账本，按 invoke 聚合的 JSONL hash 链；cost-check 拉取
+  # metering-ledger 分支经 metering.py aggregate 按角色档归账。链断/归账失败=
+  # infra fail-closed（exit 2），不静默归零不盲熔断。pending 形态保留为回滚值
+  # （ADR-0040 决策 6）；注入通道 COST_LLM_TOKENS_USED 仍优先于真实数据源）
+  llm_tokens:
+    quota_per_month: 200000000
+    warn_pct: 80
+    hardstop_pct: 100
+    data_source: ciw-metering
+    metering:            # data_source=ciw-metering 时消费（复用本段现有结构，不新建配置面）
+      repo: Cloudbird-Software/CI-Workflows
+      branch: metering-ledger
+      code_path: pipeline/metering   # 归账引擎 metering.py 所在（cost-check.yml sparse checkout）
+    # verifier 档口径（AC-11）：W3-C3 llm-verifier 接入后，verifier run 的 token 账
+    # 落盘并与 LLM 响应 usage 字段交叉核对。偏差超出任一阈值 → 该 run 判定作废转人工
+    # （非仅告警）。K 与 pivots 为暴露成本旋钮，降档须留痕且不得改动判定语义与阈值。
+    # 计量数据源复用上方 ciw-metering（records-*.jsonl role=verifier 切片），本段仅
+    # 声明 verifier 档独立阈值与 fail-closed 行为，不新建计量通道。
+    verifier:            # data_source=ciw-metering role=verifier 时的 fail-closed 阈值
+      deviation_pct: 5   # 相对偏差阈值（%），超出即作废
+      deviation_abs: 50  # 绝对偏差阈值（tokens），超出即作废
+      role: verifier     # metering 记录 role 字段过滤值
+      fail_closed_action: void_and_escalate
+      void_reason: "token 账与 metering 偏差超阈值（相对>5% 或绝对>50 tokens）——作废转人工"
+    # 成本旋钮（BUDGET-01 / AC-11）：K 与 pivots 为暴露的成本旋钮，降档须留痕且
+    # 不得改动判定语义与阈值。默认取保守高值（ASSUMPTION-03）。
+    cost_knobs:
+      k_default: 3          # 每 criterion 重复评估次数
+      pivots_default: 1     # 成本旋钮 pivots（记录用）
+      downgrade_requires_log: true
+      downgrade_preserves_semantic: true
+
+circuit_breaker:
+  # 熔断标志：org Actions 变量（visibility=all，全仓 workflow/agent 可读）
+  variable: AUTO_MERGE_DISABLED
+  # 人工复位：owner PATCH org 变量为 false（或 DELETE）+ 在 P0 issue 留复位评论（留痕）；
+  # cost-check 确认"变量已复位且用量 <100%"后自动关闭 P0 issue
+  reset_by: randypanding
