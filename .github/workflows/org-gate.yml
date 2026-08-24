@@ -86,22 +86,24 @@ jobs:
             echo "::error::C1 路径变更但 PR 未引用任何 ADR-NNNN（org-gate 中心执法，ADR-0046）"
             exit 1
           fi
-          ADR_LISTING=$(gh api "repos/Cloudbird-Software/agent-registry/contents/decisions?per_page=100" --paginate --jq '.[].name' 2>/dev/null)
+          # ADR 家园迁移（ADR-0053 框架 → ADR-0085 收口）：正本+INDEX 统一落
+          # archive/adr/（agent-registry 退役后 decisions/ 不再是 ADR 真源）。
+          # PR head 新增 ADR 走同一目录前缀 adr/。
+          ADR_LISTING=$(gh api "repos/Cloudbird-Software/archive/contents/adr?per_page=100" --paginate --jq '.[].name' 2>/dev/null)
           if [[ -z "$ADR_LISTING" ]]; then
-            echo "::error::agent-registry/decisions 清单拉取失败——ADR 存在性无法校验（fail-closed）"
+            echo "::error::archive/adr 清单拉取失败——ADR 存在性无法校验（fail-closed）"
             exit 1
           fi
           # 补充 PR 自身新增的 ADR 文件（新增 ADR 在合入前不在 main 分支清单中——仅靠
-          # 主线清单会误判幽灵 ADR；与 agent-registry gate.yml 同逻辑：PR head 的
-          # decisions/ 文件同样计入存在性校验）。
+          # 主线清单会误判幽灵 ADR；PR head 的 adr/ 文件同样计入存在性校验）。
           PR_ADR_LISTING=$(gh api "$PR_API/files?per_page=100" --paginate \
-            --jq '.[] | select(.filename | startswith("decisions/")) | .filename | capture("^decisions/(ADR-[0-9]{4}-[^/]+)$") | .captures[0].string' 2>/dev/null)
+            --jq '.[] | select(.filename | startswith("adr/")) | .filename | capture("^adr/(ADR-[0-9]{4}-[^/]+)$") | .captures[0].string' 2>/dev/null)
           ADR_LISTING=$(printf '%s\n%s' "$ADR_LISTING" "$PR_ADR_LISTING" | grep -v '^$' | sort -u)
           MISSING=0
           for ref in $( { echo "$PR_TITLE"; echo "$PR_BODY"; } | grep -oE "$ADR_RE" | sort -u ); do
             num="${ref#ADR-}"
             grep -q "^ADR-${num}-" <<<"$ADR_LISTING" || {
-              echo "::error::引用的 ${ref} 在 agent-registry/decisions/（含 PR head）无对应文件（幽灵 ADR）"; MISSING=1; }
+              echo "::error::引用的 ${ref} 在 archive/adr/（含 PR head）无对应文件（幽灵 ADR）"; MISSING=1; }
           done
           exit $MISSING
 
