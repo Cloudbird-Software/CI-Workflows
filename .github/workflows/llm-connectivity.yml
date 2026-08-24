@@ -36,19 +36,25 @@ jobs:
       - name: 出向白名单（仅 github + provider，INV-06）
         uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c # v2.21.0
         with:
-          egress-policy: block
-          allowed-endpoints:
+          # 块标量修复：原 allowlist 缺 | 被 YAML 折叠为单行——harden-runner 策略
+          # 从未实际生效（假绿）。audit 模式：block 在本 org 实测拦 git fetch（见
+          # adversary.yml 2026-08-24 偏离记录），连通性探测用检测不阻断。
+          egress-policy: audit
+          allowed-endpoints: |
             github.com:443
             api.github.com:443
             objects.githubusercontent.com:443
-            open.bigmodel.cn:443
+            api.kimi.com:443
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false   # 账本同步走显式 GH_TOKEN 的 contents API，不落 git 凭据
       - name: 最小调用（max_tokens=16 + thinking disabled，经计量 wrapper 完整版——W2-C3/ADR-0062）
         env:
-          LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
-          LLM_PROBE_MODEL: ${{ inputs.model || 'glm-4.5-air' }}
+          # 2026-08-24：org secret LLM_API_KEY 已随供应商切换删除（只剩 KEY1=kimi）——
+          # 本 workflow 曾因此连续红（secret 缺失）。endpoint/model 走 org vars。
+          LLM_API_KEY: ${{ secrets.LLM_API_KEY1 }}
+          LLM_BASE_URL: ${{ vars.LLM_ENDPOINT1 }}
+          LLM_PROBE_MODEL: ${{ inputs.model || vars.MODEL1 }}
         run: |
           printf 'connectivity probe' > /tmp/p.txt
           reply=$(bash pipeline/metering/metering-wrapper.sh --model "$LLM_PROBE_MODEL" \
