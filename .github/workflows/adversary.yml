@@ -50,8 +50,10 @@ jobs:
       ADV_SPEC_PATH: ${{ github.event.client_payload.spec_path }}
       ADV_CARD_ID: ${{ github.event.client_payload.card_id }}
       ADV_AUDIT_RUN_ID: ${{ github.event.client_payload.audit_run_id }}
-      LLM_ENDPOINT: ${{ vars.LLM_ENDPOINT }}
-      LLM_MODEL: ${{ vars.LLM_MODEL }}
+      # LLM 供应商 = kimi k2.7（org vars LLM_ENDPOINT1/MODEL1；secret LLM_API_KEY1）。
+      # 注意 wrapper 消费的是 LLM_BASE_URL（metering-wrapper.sh env 契约）。
+      LLM_BASE_URL: ${{ vars.LLM_ENDPOINT1 }}
+      LLM_MODEL: ${{ vars.MODEL1 }}
 
     steps:
       - name: 出向白名单（仅 github + provider + CNB，INV-06 / AC-13）
@@ -67,6 +69,9 @@ jobs:
             open.bigmodel.cn:443
             api.openai.com:443
             api.anthropic.com:443
+            api.kimi.com:443
+            pypi.org:443
+            files.pythonhosted.org:443
       - name: Checkout 完整代码库 + sparse-checkout 治理规范
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -131,9 +136,9 @@ jobs:
 
       - name: 攻击（judge-deep 锁定 + 计量 wrapper，ADR-0067/0062）
         env:
-          LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
-          LLM_ENDPOINT: ${{ vars.LLM_ENDPOINT }}
-          LLM_MODEL: ${{ vars.LLM_MODEL }}
+          LLM_API_KEY: ${{ secrets.LLM_API_KEY1 }}
+          LLM_BASE_URL: ${{ vars.LLM_ENDPOINT1 }}
+          LLM_MODEL: ${{ vars.MODEL1 }}
           ADV_TARGET: ${{ steps.target.outputs.target }}
           ADV_REPLAY: ${{ steps.target.outputs.replay }}
         run: |

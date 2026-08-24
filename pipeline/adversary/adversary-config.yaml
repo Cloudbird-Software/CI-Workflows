@@ -8,14 +8,14 @@ version: 1
 #   - 与 pipeline/models.yaml judge-deep 角色档交叉断言（model/temperature/max_tokens）
 adversary:
   alias: judge-deep                     # registry/models.yaml 第三族档（AR-8）——档名本身是锁
-  model: glm-4.6                        # pipeline/models.yaml judge-deep 解析结果（交叉断言）
+  model: kimi-for-coding                  # Kimi K2.7 代码专用模型（与 vars.MODEL1 一致）
   family: sovereign-family              # ≠ builder(flash-family) ≠ test-author(flagship-family)
   prompt_file: prompt-v2.md
   prompt_sha256: "sha256:3cb56e83aeed2307d05b31e9c944408b2571e7e727484739c665e1165adafbb0"
   strategies_file: attack-strategies.yaml
   strategies_version: v2                # 与 attack-strategies.yaml version 一致（adversary.py 断言）
   sampling:
-    max_tokens: 4096
+    max_tokens: 16384
     temperature: 0.2                    # registry judge-deep limits.temperature_max = 0.2
     top_p: 0.9
     seed: 67                            # 钉死采样种子——复现性（考试档案）

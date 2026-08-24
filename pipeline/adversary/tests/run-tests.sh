@@ -69,7 +69,7 @@ if [[ $RC -eq 0 ]]; then pass "T1 config 输出 rc=0"; else fail "T1 config rc=$
 [[ -s "$TMP/lock.json" ]] && jcheck "T1 alias=judge-deep（锁定的档）" "$TMP/lock.json" \
   "d['alias']=='judge-deep'"
 jcheck "T1 model/family 与 registry judge-deep 档一致（sovereign-family）" "$TMP/lock.json" \
-  "d['model']=='glm-4.6' and d['family']=='sovereign-family'"
+  "d['model']=='kimi-for-coding' and d['family']=='sovereign-family'"
 jcheck "T1 采样参数锁定齐全（max_tokens/temperature/top_p/seed/thinking）" "$TMP/lock.json" \
   "set(d['sampling'])>={'max_tokens','temperature','top_p','seed','thinking'} and d['sampling']['temperature']==0.2 and d['sampling']['seed']==67"
 PROMPT_FILE=$("$PY" -c "import json,sys; print(json.load(open(sys.argv[1],encoding='utf-8'))['prompt_file'])" "$TMP/lock.json")
@@ -141,7 +141,7 @@ for line in open(sys.argv[1], encoding='utf-8'):
 adv = [r for r in recs if r.get('role') == 'adversary']
 assert adv, '无 role=adversary 记录'
 r = adv[-1]
-assert r['model'] == 'glm-4.6', r['model']
+assert r['model'] == 'kimi-for-coding', r['model']
 assert r['exit_status'] == 'ok', r['exit_status']
 assert r['sampling']['temperature'] == 0.2 and r['seed'] == 67, (r['sampling'], r['seed'])
 assert r['prompt_version'].startswith('sha256:'), r['prompt_version']

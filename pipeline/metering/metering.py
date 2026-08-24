@@ -251,6 +251,17 @@ def cmd_mkreq(a):
             req[k] = v
     if a.thinking:
         req["thinking"] = {"type": a.thinking}  # GLM 4.5+ 推理开关（disabled=计量类小调用必需）
+    # provider 参数兼容（显式留痕，不静默）：kimi coding 端点拒绝 temperature/top_p
+    # （HTTP 400），锁定档的采样参数在传输层剔除、stderr 注明——计量记录仍按
+    # 锁定值归档（意图留痕），请求体与 provider 能力对齐。
+    base = os.environ.get("LLM_BASE_URL", "")
+    if "api.kimi.com" in base:
+        dropped = [k for k in ("temperature", "top_p") if k in req]
+        for k in dropped:
+            del req[k]
+        if dropped:
+            print(f"provider-compat: api.kimi.com 不支持 {','.join(dropped)}——已从请求体剔除"
+                  f"（锁定值仍入计量记录）", file=sys.stderr)
     if a.stream:
         req["stream"] = True
         req["stream_options"] = {"include_usage": True}  # 终块带 usage——聚合计量的数据保障

@@ -88,7 +88,9 @@ if [[ -n "$REPLAY" ]]; then
   T0=$(date +%s%3N); T1=$T0
 else
   BASE_URL="${LLM_BASE_URL:-https://open.bigmodel.cn/api/paas/v4}"
-  CURL_ARGS=(--max-time 120 -sS -o "$TMPD/resp.out" -w '%{http_code}'
+  # 超时可调（LLM_TIMEOUT_S，默认 120s）：推理型模型（kimi-for-coding 等）16k
+  # completion 实测 >120s——adversary 等长生成场景由调用方显式放宽，fail-closed 不变
+  CURL_ARGS=(--max-time "${LLM_TIMEOUT_S:-120}" -sS -o "$TMPD/resp.out" -w '%{http_code}'
              -X POST "$BASE_URL/chat/completions"
              -H "Authorization: Bearer $LLM_API_KEY" -H "Content-Type: application/json"
              --data-binary "@$TMPD/req.json")

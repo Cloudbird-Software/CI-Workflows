@@ -1,0 +1,21 @@
+{
+  "id": "mock-e2e",
+  "object": "chat.completion",
+  "created": 1724000000,
+  "model": "kimi-for-coding",
+  "choices": [
+    {
+      "index": 0,
+      "message": {
+        "role": "assistant",
+        "content": "{\"attempts\": [{\"strategy\": \"S1\", \"name\": \"常量断言洞利用\", \"hole\": \"套件恒真断言不校验实现语义\", \"rationale\": \"占位套件 test_placeholder_passes 恒真——实现返回任意常数即可全绿\", \"files\": {\"placeholder_impl.py\": \"def calculate(x, y):\\n    return 0\\n\"}}], \"explorations\": []}"
+      },
+      "finish_reason": "stop"
+    }
+  ],
+  "usage": {
+    "prompt_tokens": 100,
+    "completion_tokens": 50,
+    "total_tokens": 150
+  }
+}
