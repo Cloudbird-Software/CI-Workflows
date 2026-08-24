@@ -160,6 +160,31 @@ def test_scale_anchors():
         assert len(m.group(2)) >= 12, "条款正文过短(%s): %s" % (m.group(1), m.group(2)[:30])
 
 
+
+
+# ---- v5 指纹防线（judge-deep J3/J4 攻防轮收口）----
+# 每 AC 钉 2 个语义载荷短语（42 指纹，取自真身）：通过套件 ⟺ 携带全部语义骨架。
+# 攻击者可通过的唯一方式=写出包含每条 AC 核心语义的忠实 spec（军备均衡点）。
+FINGERPRINTS = {
+    "AC-1": ("机械初筛", "淘汰率入账"), "AC-2": ("平凡", "杀死"), "AC-3": ("栈哈希", "草稿"),
+    "AC-4": ("机械可验证方式", "常驻测试"), "AC-5": ("三段式", "翻案条件"),
+    "AC-6": ("误报率", "豁免存量"), "AC-7": ("触发侧", "抽样复核"), "AC-8": ("spec hash", "从严者生效"),
+    "AC-9": ("并集减交集", "底噪"), "AC-10": ("merger", "免 fan-out"), "AC-11": ("改进 PR", "双重裁决"),
+    "AC-12": ("硬区", "只换代不修补"), "AC-13": ("差异攻击查询", "S6"), "AC-14": ("三接缝", "越界"),
+    "AC-15": ("8C 禁用", "交叉真源"), "AC-16": ("canary", "append-only"), "AC-17": ("心跳", "清单 ID"),
+    "AC-18": ("五项", "政策页变更自动告警"), "AC-19": ("死开关", "自动复位"), "AC-20": ("一次规划会话", "零作废"),
+    "AC-21": ("凭据形状扫描", "吊销"),
+}
+
+
+def test_semantic_fingerprints():
+    fm = load_fm()[0]
+    acs = {a["id"]: a["given"] + a["when"] + a["then"] for a in fm["acceptanceCriteria"]}
+    for ac, phrases in FINGERPRINTS.items():
+        for ph in phrases:
+            assert ph in acs.get(ac, ""), ac + " 缺语义指纹: " + ph
+
+
 def test_semantic_anchors():
     fm = load_fm()[0]
     acs = {a["id"]: a for a in fm["acceptanceCriteria"]}
