@@ -3,6 +3,7 @@
 文件名固定 tax.py：adversary 候选实现须实现 calculate(income, brackets)。
 brackets = [(upper, rate), ...]（upper=None 表无穷层）。
 """
+import os
 import random
 import unittest
 
@@ -59,6 +60,25 @@ class TestFormula(unittest.TestCase):
                 self.assertAlmostEqual(
                     calculate(income, table), reference(income, table),
                     places=6, msg=f"table#{bi} income={income}")
+
+    def test_runtime_random_tables_vs_reference(self):
+        """S3' 对策（2026-08-24 第二轮实跑后加固）：运行时随机生成税表——
+        表结构不可预枚举（不同于源码内固定表），对已知表硬编码/未知表抛错的
+        实现必红；种子取运行熵（GITHUB_RUN_ID/时间），失败时打印以便复现。
+        表形态遵守 spec 语义：上界升序 + 末层 None。"""
+        import time
+        seed = int(os.environ.get("GITHUB_RUN_ID", "0") or 0) + int(time.time() * 1000) % 10**9
+        rng = random.Random(seed)
+        with self.subTest(seed=seed):   # 失败信息含种子（复现）
+            for _ in range(8):
+                n = rng.randint(2, 5)
+                bounds = sorted(rng.sample(range(100, 2_000_000), n - 1)) if n > 1 else []
+                table = [(b, round(rng.uniform(0, 0.5), 4)) for b in bounds] + [(None, round(rng.uniform(0, 0.5), 4))]
+                for _ in range(25):
+                    income = round(rng.uniform(0, 3_000_000), 2)
+                    self.assertAlmostEqual(
+                        calculate(income, table), reference(income, table),
+                        places=6, msg=f"seed={seed} table={table} income={income}")
 
     def test_ac5_monotone_and_bounded(self):
         rng = random.Random(67)
