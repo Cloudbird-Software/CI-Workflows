@@ -14,7 +14,7 @@ fi
 TMP=$(mktemp -d); trap 'rm -rf "$TMP"' EXIT
 mkdir -p "$TMP/specs/IR-0004/suite" "$TMP/governance/policy" "$TMP/governance/rulesets" "$TMP/.github/ISSUE_TEMPLATE"
 cp "$DIR"/suite/*.py "$TMP/specs/IR-0004/suite/"
-cp "$IMPL"/spec.md "$TMP/specs/IR-0004/spec.md"
+cp -- "$IMPL/spec.md" "$TMP/specs/IR-0004/spec.md"
 # 仓上下文快照（与本目录 run-suite.sh 同源的 context/，来自 .github@审计分支）
 cp -r "$DIR"/context/governance/. "$TMP/governance/"
 cp -r "$DIR"/context/issue_template/. "$TMP/.github/ISSUE_TEMPLATE/"

@@ -59,9 +59,10 @@ def test_clauses_unique_and_referenced():
     defs = re.findall(r"^- \*\*((?:INV|BEH|IFACE|BUDGET|DECISION|ASSUMPTION)-\d+)\*\*", body, re.M)
     assert len(defs) == len(set(defs)), f"正文条款定义行有重复: {[k for k in defs if defs.count(k) > 1]}"
     # BEH 条款须引用其承接的 AC
+    ac_ids = {a["id"] for a in load_fm()[0]["acceptanceCriteria"]}
     for m in re.finditer(r"BEH-\d+（(AC-[0-9/, ]+)）", body):
         for ref in re.findall(r"AC-\d+", m.group(1)):
-            assert ref in text
+            assert ref in ac_ids, f"BEH 引用了未定义的 AC: {ref}"
 
 
 def test_key_ac_artifact_words():
@@ -98,7 +99,7 @@ QUANT_ANCHORS = {
     "AC-2": ("10 条",), "AC-4": ("15 条", "3 条"), "AC-9": ("3[–-]4",),
     "AC-15": ("1C", "std=2C|2C", "4C"), "AC-16": ("canary",), "AC-17": ("七天|7 天",),
 }
-ARTIFACTS = ("run", "日志", "JSON", "JSONL", "diff", "issue", "仪表盘", "记录", "构建")
+ARTIFACTS = ("run", "日志", "JSON", "diff", "issue", "仪表盘", "记录", "构建")
 # 负向断言=条件-后果结构（非裸词）
 NEG_STRUCT = re.compile(
     r"(缺失|为空|不足|失败|超时|未运行|停摆|摘除|越界|不一致|作废|漂移|未按期|未释放)[^。；]{0,50}(红|不通过|作废|拦截|infra 失败)|(红|不通过|作废|拦截)[^。；]{0,20}(缺失|为空|不足|失败)")
@@ -173,6 +174,10 @@ def test_no_exemption_of_governance():
 if __name__ == "__main__":
     # stdlib 执行适配（adversary run-suite.sh 契约：无 pytest 环境可跑）
     import sys as _sys
+    if _sys.flags.optimize:
+        # -O 剥离 assert = 恒绿（评审 3840590782）——拒绝在优化模式执行
+        _sys.stderr.write("refusing: python -O strips asserts\n")
+        _sys.exit(2)
     import unittest as _unittest
 
     _suite = _unittest.TestSuite()
