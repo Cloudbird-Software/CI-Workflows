@@ -1,0 +1,177 @@
+name: adversary-gate
+# W4-C3 adversary gate（Cloudbird-Software/.github#284，AC-14/AC-19，ADR-0067/0082）
+#
+# 目标：specs/** 路径 PR 必须含 adversary check（漏配/摘除/跳过即红）；开发路径
+# 豁免谓词由 diff 路径集确定性派生（禁人工打标，AC-14）。
+#
+# 机制（org-required-workflows required workflow——本仓为源仓，钉点由
+# governance/rulesets/org-required-workflows.json 管理）：
+#   - 本 workflow 在每 PR 上运行（目标仓上下文），产出名为 "adversary" 的
+#     check run（main-protection required check 的闭合点）。
+#   - 预检：用 gh + github.token 判断 PR 是否含 specs/** 变更。
+#   - 非 specs PR → 直接写 success check run，放行（EXPECTED_SKIP，零外部依赖）。
+#   - specs PR → 铸 App 令牌，查 head sha 上是否存在 verdict=survived 的
+#     adversary check run；不存在/结论非 success 即红（fail-closed）。
+#
+# 与 .github 仓同名 workflow 的差异：作为跨仓 required workflow 运行在目标仓
+# 上下文，gh-app-token.sh 须从 .github 仓 sparse-checkout（ADR-0044）。
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+  pull-requests: read
+  checks: write
+
+concurrency:
+  group: adversary-gate-${{ github.event.pull_request.number }}
+  cancel-in-progress: false
+
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+      checks: write
+    steps:
+      - name: 预检 PR 是否含 specs/** 变更（gh + github.token）
+        id: specspr
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_API: "repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}"
+        run: |
+          set -euo pipefail
+          set +e
+          FILES=$(gh api "$PR_API/files?per_page=300" --jq '[.[].filename]' 2>/dev/null)
+          RC=$?
+          set -e
+          if [[ $RC -ne 0 || -z "$FILES" || "$FILES" == "null" ]]; then
+            # API 失败 → 负向断言：视为 spec 变更，走完整审计路径
+            echo "has_specs=true" >> "$GITHUB_OUTPUT"
+            echo "::warning::取 PR files 失败（负向断言：视为 spec 变更）"
+          else
+            HASSPECS=$(echo "$FILES" | python3 -c "import json,sys;files=json.load(sys.stdin);print('true' if any(f.startswith('specs/') for f in files) else 'false')")
+            echo "has_specs=$HASSPECS" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: 非 specs PR——写 success check run 并放行（github.token）
+        if: steps.specspr.outputs.has_specs == 'false'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          SUMMARY="specs/** 未变更：EXPECTED_SKIP=True（路径预检：diff 无 specs/ 前缀文件）"
+          python3 - "$SUMMARY" > "$RUNNER_TEMP/check_body.json" <<'PYEOF'
+          import json, sys, os, datetime as dt
+          json.dump({
+              "name": "adversary",
+              "head_sha": os.environ["HEAD_SHA"],
+              "status": "completed",
+              "conclusion": "success",
+              "completed_at": dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+              "output": {"title": "adversary: skipped (no specs/** change)", "summary": sys.argv[1]},
+          }, sys.stdout)
+          PYEOF
+          curl -fsS -X POST \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/$REPO/check-runs" \
+            -d @"$RUNNER_TEMP/check_body.json" \
+            && echo "非 specs PR：adversary check run 已写回 success"
+
+      - name: 拉 gh-app-token.sh（.github 仓，ADR-0044——目标仓上下文无此脚本）
+        if: steps.specspr.outputs.has_specs == 'true'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: Cloudbird-Software/.github
+          sparse-checkout: scripts/gh-app-token.sh
+          path: gov
+          persist-credentials: false
+
+      - name: 铸 App 令牌（checks:write，INV-02）
+        id: token
+        if: steps.specspr.outputs.has_specs == 'true'
+        env:
+          CB_APP_ID: ${{ secrets.CB_APP_ID }}
+          AGENT_APP_SECRET: ${{ secrets.AGENT_APP_SECRET }}
+          REPO: ${{ github.repository }}
+        run: |
+          set +e
+          NAME="${REPO#*/}"
+          TOKEN=$(REPO="$NAME" CB_APP_ID="$CB_APP_ID" AGENT_APP_SECRET="$AGENT_APP_SECRET" \
+                  bash gov/scripts/gh-app-token.sh 2>/dev/null)
+          if [[ -z "$TOKEN" ]]; then
+            echo "::error::App 令牌铸造失败——无法写回 adversary check run"
+            echo "have_token=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "APP_TOKEN=$TOKEN" >>"$GITHUB_ENV"
+            echo "have_token=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: specs PR——校验 adversary check run 已存在且 survived
+        if: steps.specspr.outputs.has_specs == 'true'
+        env:
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          REPO: ${{ github.repository }}
+          HAVE_TOKEN: ${{ steps.token.outputs.have_token }}
+        run: |
+          set -euo pipefail
+          SUMMARY="specs/** 变更 PR：校验 adversary check run"
+          # 无 App 令牌：specs PR 无法审计 → fail-closed（阻断合并）
+          if [[ "$HAVE_TOKEN" != "true" ]]; then
+            echo "::error::specs PR 无 App 令牌，无法校验 adversary check run（fail-closed）"
+            exit 1
+          fi
+          CHECKS=$(curl -fsS \
+            -H "Authorization: Bearer $APP_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/$REPO/commits/$HEAD_SHA/check-runs?per_page=100" 2>/dev/null) \
+            || CHECKS='{"check_runs":[]}'
+          VERDICT=$(echo "$CHECKS" | python3 -c "
+          import json,sys
+          runs=json.loads(sys.stdin.read()).get('check_runs',[])
+          adv=sorted([r for r in runs if r.get('name')=='adversary'], key=lambda r:(r.get('status')!='completed',))
+          if not adv:
+              print('MISSING')
+          else:
+              a=adv[-1]
+              if a.get('status')=='completed' and a.get('conclusion')=='success':
+                  print('SURVIVED')
+              elif a.get('status')=='completed':
+                  print('RED:'+str(a.get('conclusion')))
+              else:
+                  print('PENDING:'+str(a.get('status')))
+          ")
+          if [[ "$VERDICT" == "SURVIVED" ]]; then
+            echo "adversary check run 已存在且 survived：$SUMMARY"
+            exit 0
+          fi
+          # 未审计/未 survived：写 failure check run（阻断合并，AC-4 负向断言）
+          if [[ "$VERDICT" == MISSING* ]]; then
+              TITLE="adversary: 缺失（specs/** PR 未含 adversary check，阻断）"
+          else
+              TITLE="adversary: ${VERDICT}（specs/** PR 审计未通过，阻断）"
+          fi
+          python3 - "$TITLE" "$SUMMARY" > "$RUNNER_TEMP/check_body.json" <<'PYEOF'
+          import json, sys, os, datetime as dt
+          json.dump({
+              "name": "adversary",
+              "head_sha": os.environ["HEAD_SHA"],
+              "status": "completed",
+              "conclusion": "failure",
+              "completed_at": dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+              "output": {"title": sys.argv[1][:255], "summary": sys.argv[2]},
+          }, sys.stdout)
+          PYEOF
+          curl -fsS -X POST \
+            -H "Authorization: Bearer $APP_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/$REPO/check-runs" \
+            -d @"$RUNNER_TEMP/check_body.json"
+          echo "阻断：$VERDICT —— $SUMMARY"
+          exit 1
