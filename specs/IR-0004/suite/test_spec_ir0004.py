@@ -60,7 +60,8 @@ def test_clauses_unique_and_referenced():
     assert len(defs) == len(set(defs)), f"正文条款定义行有重复: {[k for k in defs if defs.count(k) > 1]}"
     # BEH 条款须引用其承接的 AC
     ac_ids = {a["id"] for a in load_fm()[0]["acceptanceCriteria"]}
-    for m in re.finditer(r"BEH-\d+（(AC-[0-9/, ]+)）", body):
+    for m in re.finditer(r"^- \*\*(BEH|INV|IFACE)-\d+\*\* (.+)$", body, re.M):
+
         for ref in re.findall(r"AC-\d+", m.group(1)):
             assert ref in ac_ids, f"BEH 引用了未定义的 AC: {ref}"
 
@@ -103,6 +104,60 @@ ARTIFACTS = ("run", "日志", "JSON", "diff", "issue", "仪表盘", "记录", "�
 # 负向断言=条件-后果结构（非裸词）
 NEG_STRUCT = re.compile(
     r"(缺失|为空|不足|失败|超时|未运行|停摆|摘除|越界|不一致|作废|漂移|未按期|未释放)[^。；]{0,50}(红|不通过|作废|拦截|infra 失败)|(红|不通过|作废|拦截)[^。；]{0,20}(缺失|为空|不足|失败)")
+
+
+
+
+# ---- v4 加固（judge-deep J1 击穿复盘：模板句复用 + 塞词 given + 最小正文）----
+def _ngrams(t, n=4):
+    t = "".join(t.split())
+    return {t[i:i + n] for i in range(max(0, len(t) - n + 1))}
+
+
+def test_no_boilerplate_thens():
+    """21 条 then 两两 4-gram Jaccard < 0.55——模板句复用即红（J1 攻击面）。"""
+    fm = load_fm()[0]
+    thens = [a["then"] for a in fm["acceptanceCriteria"]]
+    grams = [_ngrams(t) for t in thens]
+    for i in range(len(grams)):
+        for j in range(i + 1, len(grams)):
+            inter = len(grams[i] & grams[j])
+            union = len(grams[i] | grams[j]) or 1
+            sim = inter / union
+            assert sim < 0.55, "AC-%d 与 AC-%d then 相似度 %.2f——疑似样板复用" % (i + 1, j + 1, sim)
+
+
+def test_given_when_depth():
+    """given>=12 字、when>=8 字——塞词式短 given 即红（J1 攻击面）。"""
+    fm = load_fm()[0]
+    for a in fm["acceptanceCriteria"]:
+        assert len(a["given"]) >= 12, a["id"] + " given 过短: " + a["given"]
+        assert len(a["when"]) >= 8, a["id"] + " when 过短: " + a["when"]
+
+
+def test_clause_content_anchors():
+    """正文关键条款内容锚——空壳条款即红（J1 攻击面）。"""
+    body = load_fm()[1].split("---", 2)[2]
+    anchors = {
+        "INV-01": "沙箱", "INV-02": "判定链", "INV-03": "SHA",
+        "IFACE-02": "cnb_bridge", "DECISION-05": "ADR-0082", "ASSUMPTION-01": "1600",
+    }
+    for cid, kw in anchors.items():
+        idx = body.find(cid)
+        assert idx >= 0, cid + " 未定义"
+        window = body[idx:idx + 500]
+        assert kw in window, cid + " 定义行缺内容锚 " + kw
+
+
+def test_scale_anchors():
+    """规模锚：blastRadius>=12、nonGoals>=8、BEH/INV/IFACE 条款正文各>=12 字。"""
+    fm = load_fm()[0]
+    assert len(fm["blastRadius"]) >= 12, "blastRadius 过少: %d" % len(fm["blastRadius"])
+    assert len(fm["nonGoals"]) >= 8, "nonGoals 过少: %d" % len(fm["nonGoals"])
+    body = load_fm()[1].split("---", 2)[2]
+    import re as _re2
+    for m in _re2.finditer(r"^- \*\*((?:BEH|INV|IFACE)-\d+)\*\* (.+)$", body, _re2.M):
+        assert len(m.group(2)) >= 12, "条款正文过短(%s): %s" % (m.group(1), m.group(2)[:30])
 
 
 def test_semantic_anchors():
