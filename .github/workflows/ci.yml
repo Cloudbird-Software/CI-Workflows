@@ -130,6 +130,15 @@ jobs:
         run: python3 -m pip install --disable-pip-version-check --quiet pyyaml==6.0.3
       - name: adversary 自测 T0-T5
         run: bash pipeline/adversary/tests/run-tests.sh
+      - name: expected-skip 自测 E0-E7（W4-C3 #284）
+        # 豁免谓词 judge 面 + 豁免清单 + exemption_sha 留痕——2026-08 接口漂移
+        # （PR #87 代码 vs #88 测试）曾致 10/13 断言红而 CI 不跑漏检，故常驻本 job。
+        run: bash pipeline/adversary/tests/test-expected-skip.sh
+      - name: check-run-writeback 自测 W0-W4（W4-C2 #283）
+        # verdict→check run 映射/截断/定位与令牌解析（纯逻辑 + CLI 负向）。
+        run: bash pipeline/adversary/tests/test-check-run-writeback.sh
+      - name: intent-backstop 自测 I0-I3（W4-C4 #285）
+        run: bash pipeline/adversary/tests/test-intent-backstop.sh
 
   entropy-selftest:
     # 语义熵分歧度量自测（W4-C1 .github#220 / ADR-0066 决策 3，宪法 §4E 判定物

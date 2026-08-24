@@ -20,6 +20,12 @@ on:
         { description: "目标目录（须含 spec.md + suite/ + run-suite.sh）", type: string, required: true }
       replay_file:
         { description: "离线回放响应文件（可选——复现审计/无凭据环境）", type: string, required: false, default: "" }
+      pr_repo:
+        { description: "spec PR 所在仓 owner/name（可选——给定时 verdict 写回 check run）", type: string, required: false, default: "" }
+      pr_number:
+        { description: "spec PR 编号（可选，与 pr_repo 配合）", type: number, required: false }
+      head_sha:
+        { description: "spec PR head SHA（可选——给定时免 API 解析直接挂接）", type: string, required: false, default: "" }
 
 permissions:
   contents: read
@@ -165,6 +171,40 @@ jobs:
           else
             echo "## 恶意合规 adversary 报告：未产出（前置步骤失败）" >>"$GITHUB_STEP_SUMMARY"
           fi
+      - name: verdict 写回 spec PR check run —— 铸 App 令牌（W4-C2 #283，INV-02）
+        # PR 上下文给定时（dispatch inputs 或 repository_dispatch 载荷），把
+        # verdict 以 "adversary" check run 挂到 spec PR head——这是 ruleset
+        # required check 的闭合点：红队结论不写回就不具合并阻断力。
+        # gh-app-token.sh 属 .github 仓（ADR-0044）：sparse 拉取后按目标仓单仓
+        # 作用域铸造（AG-2）；check 写回仅用 checks:write 面。
+        if: always() && (inputs.pr_repo || github.event.client_payload.pr_repo)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: Cloudbird-Software/.github
+          sparse-checkout: scripts/gh-app-token.sh
+          path: gov
+          persist-credentials: false
+      - name: verdict 写回 spec PR check run（W4-C2 #283）
+        # exit 语义透传 check_run_writeback.py：1=insufficient（红，本步失败）/
+        # 3=no-attempts（infra 红）/ 0=放行——与攻击步退出码语义一致。
+        if: always() && (inputs.pr_repo || github.event.client_payload.pr_repo)
+        env:
+          PR_REPO: ${{ inputs.pr_repo || github.event.client_payload.pr_repo }}
+          PR_NUMBER: ${{ inputs.pr_number || github.event.client_payload.pr_number }}
+          PR_SHA: ${{ inputs.head_sha || github.event.client_payload.head_sha }}
+          CB_APP_ID: ${{ secrets.CB_APP_ID }}
+          AGENT_APP_SECRET: ${{ secrets.AGENT_APP_SECRET }}
+        run: |
+          set -euo pipefail
+          f="$RUNNER_TEMP/adversary-report.json"
+          [[ -f "$f" ]] || { echo "::error::无判定报告可写回（前置步失败）"; exit 2; }
+          NAME="${PR_REPO#*/}"
+          APP_TOKEN=$(REPO="$NAME" CB_APP_ID="$CB_APP_ID" AGENT_APP_SECRET="$AGENT_APP_SECRET" \
+                  bash gov/scripts/gh-app-token.sh)
+          args=(--report "$f" --repo "$PR_REPO" --gh-token "$APP_TOKEN")
+          [[ -n "${PR_SHA:-}" ]] && args+=(--head-sha "$PR_SHA")
+          [[ -n "${PR_NUMBER:-}" ]] && args+=(--spec-pr "$PR_NUMBER")
+          python3 pipeline/adversary/check_run_writeback.py "${args[@]}"
       - name: 计量账本验链 + 同步（metering-ledger 分支，BUDGET-01 数据源）
         if: always()
         env:
