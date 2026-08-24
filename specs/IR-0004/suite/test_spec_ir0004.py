@@ -207,6 +207,21 @@ def test_mechanism_fingerprints_and_depth():
         assert len(a["then"]) >= 120, a["id"] + " then 长度 %d < 120（深度下限）" % len(a["then"])
 
 
+
+
+# ---- v7 出身记录完整性（judge-deep J8：amendments 占位糊弄）----
+def test_amendments_provenance():
+    """每条修订理由须为实质记载（>=20 字且非占位）——出身记录不可糊弄。"""
+    fm = load_fm()[0]
+    aml = fm.get("amendments") or []
+    assert len(aml) >= 1, "amendments 为空"
+    for a in aml:
+        reason = str(a.get("reason", ""))
+        assert len(reason) >= 20, "修订理由过短（疑似占位）: " + reason[:30]
+        for bad in ("占位", "placeholder", "TODO", "XXX"):
+            assert bad not in reason, "修订理由含占位标记: " + bad
+
+
 def test_semantic_anchors():
     fm = load_fm()[0]
     acs = {a["id"]: a for a in fm["acceptanceCriteria"]}
