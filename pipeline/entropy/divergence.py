@@ -257,8 +257,16 @@ def write_outputs(report, out_dir, card_id, spec_hash, base_sha):
     out.mkdir(parents=True, exist_ok=True)
     with open(out / "divergence-report.json", "w", encoding="utf-8", newline="\n") as f:
         f.write(json.dumps(report, ensure_ascii=False, indent=2) + "\n")
+    # AC-13/IFACE-03 append-only 哈希链（与 fanout/consumer.py 契约对齐——集成实跑统一）
+    import hashlib
+    prev = "0" * 64
     with open(out / "fanout-products.jsonl", "w", encoding="utf-8", newline="\n") as f:
         for rec in fanout_records(report, card_id, spec_hash, base_sha):
+            rec = dict(rec)
+            rec["prev_hash"] = prev
+            canonical = json.dumps(rec, sort_keys=True, separators=(",", ":"),
+                                   ensure_ascii=False).encode("utf-8")
+            prev = hashlib.sha256(canonical).hexdigest()
             f.write(json.dumps(rec, ensure_ascii=False) + "\n")
 
 
