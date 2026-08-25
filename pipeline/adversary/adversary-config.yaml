@@ -8,7 +8,7 @@ version: 1
 #   - 与 pipeline/models.yaml judge-deep 角色档交叉断言（model/temperature/max_tokens）
 adversary:
   alias: judge-deep                     # registry/models.yaml 第三族档（AR-8）——档名本身是锁
-  model: sensenova-6.8-flash-lite  # 商汤日日新（供应商切换，2026-08-25）                  # Kimi K2.7 代码专用模型（与 vars.MODEL1 一致）
+  model: kimi-for-coding                  # Kimi K2.7 代码专用模型（与 vars.MODEL1 一致）
   family: sovereign-family              # ≠ builder(flash-family) ≠ test-author(flagship-family)
   prompt_file: prompt-v2.md
   prompt_sha256: "sha256:3cb56e83aeed2307d05b31e9c944408b2571e7e727484739c665e1165adafbb0"
