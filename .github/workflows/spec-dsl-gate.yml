@@ -1,0 +1,129 @@
+name: spec-dsl-gate
+# 验收 DSL spec 关卡（IR-0004 AC-8 / IFACE-04；Cloudbird-Software/CI-Workflows）。
+# 用法（治理仓 .github 的 specs PR gate 引用）:
+#   spec-dsl-gate:
+#     uses: Cloudbird-Software/CI-Workflows/.github/workflows/spec-dsl-gate.yml@<钉住 ref>
+#     with:
+#       detector-ref: <与 uses: 的 pin 同值的 commit SHA/tag>
+# 判定（对 PR 变更命中的每个 specs/<IR>/ 目录，fail-closed）:
+#   1) spec.md frontmatter 可解析（YAML）且 DSL 可编译——compile.py 干跑，
+#      产物只进 $RUNNER_TEMP 不落仓；
+#   2) 若存在 suite/generated/ 则逐 .py 文件 verify.py hash 溯源校验
+#      （spec-hash / 逐 AC hash / 应然内容任一不符=红）。
+# 门禁三要素均来自被审 PR 改不动的位置（#81 §3.3 / ADR-0037 决策 6，
+# test-integrity 同款）: workflow 本体（caller 钉 ref 引用）+ 执法工具
+# （detector-ref 显式输入 checkout 本仓同源副本——github.action_ref 在
+# reusable 上下文随步骤动作漂移，不可用于钉源）+ 路径约定（仓根相对调用，
+# 与生成物 regenerate 行同形）。
+# 并存分工（AC-8）: 与 g010/spec-check.py（frontmatter 结构+注入双扫）重叠面
+# 从严者生效、不重复建设；hash 溯源管辖编译生成物，一般测试文件归 T-13。
+on:
+  workflow_call:
+    inputs:
+      specs-dir:
+        type: string
+        default: "specs"            # spec 根目录（其下每子目录=一个 IR spec 目录）
+      generated-subdir:
+        type: string
+        default: "suite/generated"  # 编译生成物子目录（存在才校验）
+      detector-ref:
+        type: string
+        default: ""                 # 执法工具来源（CI-Workflows 的 SHA/tag）——空=红（fail-closed）
+
+permissions: {}   # 顶层零权限默认；job 级显式最小权限
+
+jobs:
+  spec-dsl-gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10   # 组织安全基线：关卡硬上限
+    permissions:
+      contents: read
+    steps:
+      - name: 非 PR 事件（n/a-success）
+        if: github.event_name != 'pull_request'
+        env:
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD: ${{ github.event.pull_request.head.sha }}
+          SPECS_DIR_IN: ${{ inputs.specs-dir }}
+          GEN_SUB_IN: ${{ inputs.generated-subdir }}
+        run: |
+          echo "::notice::spec-dsl-gate 只对 pull_request 事件判定（推送面无 base...head 的 PR diff 语义）——本事件 n/a（success），调用方 gate 无需登记 EXPECTED_SKIP"
+
+      - name: Checkout 调用仓（全历史——base...head diff 需要）
+        if: github.event_name == 'pull_request'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: fail-closed——detector-ref 必须显式钉住（执法工具不可取自被审 PR）
+        if: github.event_name == 'pull_request' && inputs.detector-ref == ''
+        run: |
+          echo "::error::detector-ref 为空——执法工具来源必须显式钉住（CI-Workflows 的 commit SHA/tag，与 uses: 的 pin 同值；github.action_ref 会漂移，不可用）"
+          exit 1
+
+      - name: Checkout 检测器（CI-Workflows 同源副本，只读）
+        if: github.event_name == 'pull_request' && inputs.detector-ref != ''
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: Cloudbird-Software/CI-Workflows
+          ref: ${{ inputs.detector-ref }}
+          path: detector
+          persist-credentials: false
+
+      - name: Setup Python 3.11（stdlib only——零 pip 依赖，无网络需求）
+        if: github.event_name == 'pull_request'
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: "3.11"
+
+      - name: frontmatter 可解析 + DSL 可编译 + hash 溯源校验（变更命中的每个 spec 目录）
+        if: github.event_name == 'pull_request'
+        run: |
+          set -euo pipefail
+          BASE="$PR_BASE"
+          HEAD="$PR_HEAD"
+          SPECS_DIR="${SPECS_DIR_IN:-specs}"
+          GEN_SUB="${GEN_SUB_IN:-suite/generated}"
+          mapfile -t CHANGED < <(git diff --name-only "$BASE" "$HEAD" -- "$SPECS_DIR/" | sort -u || true)
+          if [ "${#CHANGED[@]}" -eq 0 ]; then
+            echo "::notice::无 $SPECS_DIR/ 变更——n/a（success）"
+            exit 0
+          fi
+          FAIL=0
+          for d in $(printf '%s\n' "${CHANGED[@]}" | xargs -n1 dirname | sort -u); do
+            SPEC="$d/spec.md"
+            if [ ! -f "$SPEC" ]; then
+              echo "::error::$SPEC 不存在（$d 有变更但缺 spec.md）"
+              FAIL=1; continue
+            fi
+            # (1) frontmatter 可解析 + DSL 可编译（干跑产物只进 $RUNNER_TEMP）
+            if python3 detector/pipeline/dsl/compile.py --spec "$SPEC" \
+                 --out "$RUNNER_TEMP/dsl-probe-$(basename "$d").py"; then
+              echo "DSL-OK: $SPEC"
+            else
+              echo "::error::$SPEC frontmatter 不可解析或 DSL 不可编译"
+              FAIL=1
+            fi
+            # (2) hash 溯源：suite/generated/ 存在才校验（不存在=spec 尚未编译骨架，合法）
+            GEN="$d/$GEN_SUB"
+            if [ -d "$GEN" ]; then
+              shopt -s nullglob
+              FOUND=0
+              for g in "$GEN"/*.py; do
+                FOUND=1
+                if python3 detector/pipeline/dsl/verify.py --generated "$g" --spec "$SPEC"; then
+                  echo "hash-GREEN: $g"
+                else
+                  echo "::error::hash 溯源校验红: $g"
+                  FAIL=1
+                fi
+              done
+              if [ "$FOUND" -eq 0 ]; then
+                echo "::notice::$GEN 存在但无 .py 生成物——跳过"
+              fi
+            else
+              echo "::notice::$GEN 不存在——跳过 hash 校验（本 spec 未编译过骨架）"
+            fi
+          done
+          exit "$FAIL"
