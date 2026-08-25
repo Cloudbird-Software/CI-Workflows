@@ -2,9 +2,17 @@
 import sys
 from pathlib import Path
 
-BUILD_C = Path(__file__).resolve().parents[1]
-if str(BUILD_C) not in sys.path:
-    sys.path.insert(0, str(BUILD_C))
+# 集成布局自适应（CI-Workflows pipeline/ 或独立 build-c 根）：
+# 本文件位于 <root>/pipeline/selftest-c/tests/ → 模块根=parents[2]/pipeline；
+# 独立布局位于 <build-c>/tests/ → 模块根=parents[1]
+_here = Path(__file__).resolve()
+for _root in (_here.parents[2], _here.parents[1]):
+    if (_root / "oracle").is_dir():
+        if str(_root) not in sys.path:
+            sys.path.insert(0, str(_root))
+        break
+else:
+    raise ImportError("oracle/fanout/drill 模块根未定位（集成布局异常）")
 
 from oracle.miniyaml import dump_yaml, load_yaml  # noqa: E402
 
