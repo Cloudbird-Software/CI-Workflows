@@ -1,0 +1,26 @@
+version: 1
+# adversary 锁定配置（W4-C2 .github#221，ADR-0067 决策 3；W3-C2 .github#278 修订）
+# 考试档案语义（与 ADR-0072 verifier 档案同构）：模型 + prompt 版本 + 采样
+# 参数全锁定，按 judge_id@版本@prompt_hash 存档——攻击结论可复现可审计。
+# 任何改动 = C1 变更（PR 引用 ADR），adversary.py load_lock 逐项执法：
+#   - prompt 文件 sha256 必须与 prompt_sha256 一致（漂移即 fail-closed exit 2）
+#   - 族分离（AR-8）：adversary 族 ≠ builder 族 ≠ test-author 族
+#   - 与 pipeline/models.yaml judge-deep 角色档交叉断言（model/temperature/max_tokens）
+adversary:
+  alias: judge-deep                     # registry/models.yaml 第三族档（AR-8）——档名本身是锁
+  model: deepseek-v4-flash               # 商汤日日新（2026-08-25，sensenova-6.8 推理消耗切直出）
+  family: sovereign-family              # ≠ builder(flash-family) ≠ test-author(flagship-family)
+  prompt_file: prompt-v2.md
+  prompt_sha256: "sha256:3cb56e83aeed2307d05b31e9c944408b2571e7e727484739c665e1165adafbb0"
+  strategies_file: attack-strategies.yaml
+  strategies_version: v2                # 与 attack-strategies.yaml version 一致（adversary.py 断言）
+  sampling:
+    max_tokens: 16384
+    temperature: 0.2                    # registry judge-deep limits.temperature_max = 0.2
+    top_p: 0.9
+    seed: 67                            # 钉死采样种子——复现性（考试档案）
+    thinking: disabled                  # deepseek-v4-flash 直出，非推理模式
+  max_attempts: 8                       # 单次运行尝试上限（成本护栏，judge-deep 计入 BUDGET-01）
+cross_family:                           # AR-8 断言基准（对齐 agent-registry registry/models.yaml）
+  builder: {alias: coder-fast, family: flash-family}
+  test_author: {alias: reviewer, family: flagship-family}
