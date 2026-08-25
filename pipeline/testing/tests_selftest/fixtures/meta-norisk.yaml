@@ -1,0 +1,8 @@
+id: CARD-108
+kind: card
+title: "部署编排适配层（缺 risk_level——必须 fail-closed）"
+spec:
+  math_definition: true
+code_kind: glue
+loc: 120
+commits_last_90d: 2

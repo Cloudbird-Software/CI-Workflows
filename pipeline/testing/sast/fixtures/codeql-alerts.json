@@ -1,0 +1,30 @@
+{
+  "tool": "codeql",
+  "repo": "cloudbird/api-gateway",
+  "alerts": [
+    {
+      "fingerprint": "sha256:7d7f1a7c9e1e2e1a9a3f0e1d2c3b4a59687a8b9c0d1e2f3a4b5c6d7e8f9a0b1",
+      "rule": "py/sql-injection",
+      "severity": "error",
+      "location": "src/db.py:42"
+    },
+    {
+      "fingerprint": "sha256:1c2b3a4d5e6f70819a2b3c4d5e6f70819a2b3c4d5e6f70819a2b3c4d5e6f7081",
+      "rule": "py/clear-text-logging-sensitive-data",
+      "severity": "warning",
+      "location": "src/log.py:17"
+    },
+    {
+      "fingerprint": "sha256:9f8e7d6c5b4a39281706f5e4d3c2b1a099887766554433221100998877665544",
+      "rule": "py/insecure-protocol",
+      "severity": "error",
+      "location": "src/client.py:8"
+    },
+    {
+      "fingerprint": "sha256:0a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f9",
+      "rule": "py/polynomial-regex",
+      "severity": "note",
+      "location": "src/validate.py:101"
+    }
+  ]
+}

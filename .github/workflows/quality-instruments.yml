@@ -1,0 +1,172 @@
+# quality-instruments —— 五件质量仪器统一入口（IR-0004 AC-3/4/5/6/7）
+#
+# 用法（业务仓 workflow 内复用）：
+#   quality:
+#     uses: Cloudbird-Software/CI-Workflows/.github/workflows/quality-instruments.yml@<钉住 ref>
+#     with:
+#       instrument: fuzz            # fuzz|metamorphic|symbolic|sast-sweep|formal-check
+#       target_repo: Cloudbird-Software/api-gateway
+#
+# 安全要求（组织惯例）：
+#   - actions 只用钉 SHA 的 checkout/setup-python（被审 PR 改不动执法面）；
+#   - permissions: contents: read；timeout 20min；
+#   - 每周 cron 06:43（周一）对全 org 跑 sast-sweep（矩阵见 weekly-sast-sweep）。
+name: quality-instruments
+
+on:
+  workflow_call:
+    inputs:
+      instrument:
+        description: "fuzz | metamorphic | symbolic | sast-sweep | formal-check"
+        type: string
+        required: true
+      target_repo:
+        description: "被测仓 owner/name"
+        type: string
+        required: true
+  schedule:
+    - cron: "43 6 * * 1"   # 每周一 06:43 UTC（避开整点调度洪峰，org-gate 同款纪律）
+
+permissions:
+  contents: read
+
+jobs:
+  dispatch:
+    if: github.event_name == 'workflow_call'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        instrument: [fuzz, metamorphic, symbolic, sast-sweep, formal-check]
+    steps:
+      - name: Checkout CI-Workflows（执法工具，钉源）
+        if: matrix.instrument == inputs.instrument
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          path: ci-workflows
+          persist-credentials: false   # zizmor artipacked
+      - name: Checkout target repo
+        if: matrix.instrument == inputs.instrument
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false   # zizmor artipacked
+          repository: ${{ inputs.target_repo }}
+          path: target
+      - name: Setup Python 3.11
+        if: matrix.instrument == inputs.instrument
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: "3.11"
+      - name: Run instrument
+        if: matrix.instrument == inputs.instrument
+        env:
+          INSTRUMENT: ${{ matrix.instrument }}
+          TARGET_REPO: ${{ inputs.target_repo }}
+        run: |
+          set -eu
+          T="pipeline/testing"
+          case "$INSTRUMENT" in
+            fuzz)
+              # 目标仓 schema（约定 target/fuzz/schema.json；缺省用仓内演示 schema 跑通管道）
+              SCHEMA="target/fuzz/schema.json"
+              if [ ! -f "$SCHEMA" ]; then SCHEMA="ci-workflows/$T/fuzz/fixtures/demo-schema.json"; fi
+              python "ci-workflows/$T/fuzz/seedgen.py" --schema "$SCHEMA" --out-dir "$RUNNER_TEMP/corpus"
+              python "ci-workflows/$T/fuzz/corpus.py" add --corpus-dir "$RUNNER_TEMP/corpus" \
+                --dir "$RUNNER_TEMP/corpus" --generator seedgen
+              python "ci-workflows/$T/fuzz/corpus.py" growth --corpus-dir "$RUNNER_TEMP/corpus" \
+                --out "$RUNNER_TEMP/corpus/growth.jsonl"
+              ;;
+            metamorphic)
+              CASE="target/testing/metamorphic-case.json"
+              if [ ! -f "$CASE" ]; then echo "目标仓未提供 metamorphic-case.json（沿用 candidate 状态，跳过执行）"; exit 0; fi
+              python "ci-workflows/$T/metamorphic/relations.py" \
+                --catalog "ci-workflows/$T/metamorphic/catalog.yaml" --case "$CASE"
+              ;;
+            symbolic)
+              # pynguin 只探测：不可用自动回落静态近似（proxy=true），报告含复算命令
+              python "ci-workflows/$T/symbolic/pilot.py" --target target \
+                --out-dir "$RUNNER_TEMP/symbolic-reports" --timeout 300
+              cat "$RUNNER_TEMP"/symbolic-reports/pilot-report-*.md >> "$GITHUB_STEP_SUMMARY" || true
+              ;;
+            sast-sweep)
+              # 约定：目标仓 CodeQL alerts 导出于 target/sast/codeql-alerts.json，
+              # 台账在 CI-Workflows 仓 pipeline/testing/sast/ledger.yaml（append-only 链）
+              ALERTS="target/sast/codeql-alerts.json"
+              LEDGER="ci-workflows/$T/sast/ledger.yaml"
+              if [ ! -f "$LEDGER" ]; then LEDGER="ci-workflows/$T/sast/fixtures/ledger-demo.yaml"; fi
+              if [ -f "$ALERTS" ]; then
+                python "ci-workflows/$T/sast/sweep.py" --alerts "$ALERTS" --ledger "$LEDGER" \
+                  --out "$RUNNER_TEMP/sweep-report.json"
+              else
+                echo "目标仓无 codeql-alerts.json，用 fixture 演示管道（--no-enforce）"
+                python "ci-workflows/$T/sast/sweep.py" \
+                  --alerts "ci-workflows/$T/sast/fixtures/codeql-alerts.json" \
+                  --ledger "$LEDGER" --no-enforce
+              fi
+              ;;
+            formal-check)
+              META="target/testing/card-meta.yaml"
+              if [ ! -f "$META" ]; then echo "目标仓未提供 card-meta.yaml，跳过（fail-closed 语义见 README）"; exit 0; fi
+              python "ci-workflows/$T/formal/trigger.py" --meta "$META" \
+                --out "$RUNNER_TEMP/formal-verdict.json"
+              ;;
+            *)
+              echo "未知 instrument: $INSTRUMENT" >&2; exit 2;;
+          esac
+
+  # 每周一 06:43 UTC：sast-sweep 对全 org（矩阵列出；security-events 读取需
+  # 授权 token，缺省回落 fixture 演示 + --no-enforce，仅验证管道健康）。
+  weekly-sast-sweep:
+    if: github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        target_repo:
+          # REPOS.yaml 真仓清单（AI 幻觉仓勘误：api-gateway/billing-core/web-console 不存在）
+          - Cloudbird-Software/template-service
+          - Cloudbird-Software/AI_Web_School
+          - Cloudbird-Software/Script_Writer
+          - Cloudbird-Software/Shorts_Director
+          - Cloudbird-Software/Use-up-Plan
+          - Cloudbird-Software/mutual
+          - Cloudbird-Software/QW_Arena1
+          - Cloudbird-Software/cnb-bridge
+          - Cloudbird-Software/arbiter
+    steps:
+      - name: Checkout CI-Workflows（执法工具，钉源）
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false   # zizmor artipacked
+      - name: Setup Python 3.11
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          persist-credentials: false   # zizmor artipacked
+          python-version: "3.11"
+      - name: Fetch CodeQL alerts（无授权则回落 fixture 演示）
+        env:
+          TARGET_REPO: ${{ matrix.target_repo }}
+        run: |
+          set -eu
+          # sweep.py 原生接受 CodeQL REST alerts 形状（只取 open 告警）
+          if gh api "/repos/$TARGET_REPO/code-scanning/alerts?per_page=100" > "$RUNNER_TEMP/codeql-alerts.json" 2>/dev/null; then
+            ALERTS="$RUNNER_TEMP/codeql-alerts.json"
+            ENFORCE=""
+          else
+            echo "gh api 无权限（contents:read token 不足），回落 fixture 演示（--no-enforce）"
+            ALERTS="pipeline/testing/sast/fixtures/codeql-alerts.json"
+            ENFORCE="--no-enforce"
+          fi
+          if [ -f pipeline/testing/sast/ledger.yaml ]; then
+            LEDGER="pipeline/testing/sast/ledger.yaml"
+          else
+            LEDGER="pipeline/testing/sast/fixtures/ledger-demo.yaml"
+          fi
+          python pipeline/testing/sast/sweep.py --alerts "$ALERTS" --ledger "$LEDGER" $ENFORCE \
+            --out "$RUNNER_TEMP/sweep-report.json"

@@ -1,0 +1,10 @@
+id: CARD-109
+kind: card
+title: "内部脚手架胶水层"
+spec:
+  math_definition: false
+  semiformal_spec: true
+risk_level: low
+loc: 90
+commits_last_90d: 1
+code_kind: glue

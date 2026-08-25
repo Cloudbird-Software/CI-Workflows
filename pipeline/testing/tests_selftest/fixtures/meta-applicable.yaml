@@ -1,0 +1,15 @@
+id: CARD-107
+kind: card
+title: "结算舍入算法（数学定义核心）"
+spec:
+  math_definition: true
+  has_state_machine: false
+  crypto_primitive: false
+  semiformal_spec: true
+  contract: stable
+  unbounded_input: false
+  algorithm_definition_ref: "spec/rounding.md §2（半形式化不变量已列）"
+risk_level: high
+loc: 320
+commits_last_90d: 3
+code_kind: algorithm

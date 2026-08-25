@@ -1,0 +1,16 @@
+{
+  "MR-001": {
+    "input_before": [3, 1, 2],
+    "output_before": [1, 2, 3],
+    "input_after": [2, 1, 3],
+    "output_after": [3, 2, 1]
+  },
+  "MR-002": {
+    "output_before": {"status": "ok", "n": 1},
+    "output_after": {"status": "ok", "n": 1}
+  },
+  "MR-003": {
+    "output_before": {"total": 100},
+    "output_after": [{"total": 40}, {"total": 60}]
+  }
+}
