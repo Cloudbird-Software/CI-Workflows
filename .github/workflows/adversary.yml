@@ -108,14 +108,15 @@ jobs:
         env:
           ADV_TARGET_IN: ${{ inputs.target }}
           ADV_REPLAY_IN: ${{ inputs.replay_file }}
+          XT_REPO_IN: ${{ inputs.target_repo || github.event.client_payload.target_repo || '' }}
         run: |
           set -euo pipefail
           if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
             t="$ADV_TARGET_IN"
             r="$ADV_REPLAY_IN"
           # 跨仓目标重定位（ADR-0085）：前缀改写至 external-target/——路径校验（相对+无..）语义不变
-          XT_REPO="${{ inputs.target_repo || github.event.client_payload.target_repo || '' }}"
-          if [[ -n "$XT_REPO" ]]; then
+          # zizmor template-injection：表达式一律经 env 间接（XT_REPO_IN），正文零插值
+          if [[ -n "${XT_REPO_IN:-}" ]]; then
             t="external-target/$t"
           fi
           else
