@@ -67,6 +67,7 @@ baselines:
   AI_Web_School: 0
   mutual: 0
   QW_Arena1: 7   # 盘点 2026-08-25：7 处全部来自 Plan.md 专家计划原文的代码样例（noqa/pragma/type-ignore 散文标记）——按 agent-registry 先例散文计入，保守方向不豁免
+  Viral_Radar: 0   # 盘点 2026-08-25：template-service 基线新建（Initial commit 干净树）+ specs 纯文本 PR，零抑制标记；新仓接入入册（ADR-0091 建仓申报）
 
 # ----------------------------------------------------------------------------
 # 计数排除（仓库作用域）：仅声明仓自己可排除——模式声明与自测 fixture 是数据
