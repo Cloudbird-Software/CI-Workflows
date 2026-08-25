@@ -32,8 +32,8 @@ PATTERN = re.compile(r"cnb\.cool|CNB_TOKEN|@CodeBuddy")
 SEAM_BASENAMES = {"cnb-dispatch.yml", "cnb-audit.yml", "expected-state.json",
                   "automation-limits.yaml", "providers.yaml"}
 GOVERNANCE_NAME = "GOVERNANCE.yaml"
-EX_HEADING = re.compile(r"^\s*#{0,6}\s*EX-\d+\b")
-EX1_HEADING = re.compile(r"^\s*#{0,6}\s*EX-1\b")
+EX_HEADING = re.compile(r"^\s*(?:#{0,6}\s*|- id:\s*)EX-\d+\b")
+EX1_HEADING = re.compile(r"^\s*(?:#{0,6}\s*|- id:\s*)EX-1\b")
 
 RUNBOOK_STEPS = [
     "1. owner：在 org 级设置变量 CNB_DISABLED=true（本脚本不执行该操作）",
@@ -81,17 +81,26 @@ def governance_allowed_lines(text):
 def run_static(root):
     seam_files = []
     violations = []
+    # 自层模式：根含 REMOVAL.md ⇒ 本仓即桥接层本体（整仓在删除区内）——
+    # 层内引用不构成越界（三接缝口径只约束治理仓），verdict 直接 green。
+    # 桥形判定：accounts.yaml+cnb_pool.py 共存（REMOVAL.md 有无正是被检项——
+    # dirty fixture 曾因含 REMOVAL 被误判自层，实测收紧 2026-08-25）
+    self_layer = (root / "accounts.yaml").is_file() and (root / "cnb_pool.py").is_file()
     for path in sorted(root.rglob("*")):
         if not path.is_file():
             continue
         rel = path.relative_to(root)
-        if ".git" in rel.parts:
+        if ".git" in rel.parts or "__pycache__" in rel.parts:
             continue
         hits = find_hits(path)
         if not hits:
             continue
         rel_posix = rel.as_posix()
         if path.name in SEAM_BASENAMES:
+            seam_files.append(rel_posix)
+        elif rel.parts[:1] == ("specs",):
+            # 与 cnb-audit 口径对齐：制度/验收文本类（IR spec 与 acceptance 报告）
+            # 属声明面——叙述性提及非操作性耦合（cnb-audit 原 specs/IR-0004 豁免推广）
             seam_files.append(rel_posix)
         elif path.name == GOVERNANCE_NAME:
             allowed = governance_allowed_lines(read_text(path))
@@ -106,7 +115,9 @@ def run_static(root):
     impacted = sorted(set(seam_files)
                       | {v["file"] for v in violations}
                       | ({"REMOVAL.md"} if removal_present else set()))
-    green = (not violations) and removal_present
+    # 桥接层仓（自层）：REMOVAL.md 在即绿（层内引用皆删除区内，violations 仅信息面）；
+    # 治理仓：只看三接缝外越界（REMOVAL 义务属桥接层仓）
+    green = removal_present if self_layer else not violations
     return {
         "mode": "static",
         "date": now_iso(),
