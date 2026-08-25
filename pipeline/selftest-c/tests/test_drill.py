@@ -4,6 +4,7 @@ import importlib.util
 import io
 import json
 import unittest
+from pathlib import Path
 
 from tests.testlib import BUILD_C
 
@@ -12,7 +13,7 @@ _spec = importlib.util.spec_from_file_location(
 cnb_drill = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(cnb_drill)
 
-FIXTURES = BUILD_C / "tests" / "fixtures"
+FIXTURES = Path(__file__).resolve().parent / "fixtures"   # 集成布局：fixtures 随测试目录
 
 
 class DrillStaticTests(unittest.TestCase):
