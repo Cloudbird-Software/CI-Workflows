@@ -5,6 +5,13 @@ name: mutation-weekly
 # (06:17 UTC - off the top of the hour to dodge cron congestion).
 
 on:
+  workflow_dispatch:
+    inputs:
+      target_repo:
+        description: "Owner/name of the repository to score"
+        required: false
+        type: string
+        default: "Cloudbird-Software/AI_Web_School"
   workflow_call:
     inputs:
       target_repo:
