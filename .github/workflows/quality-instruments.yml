@@ -47,10 +47,12 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           path: ci-workflows
+          persist-credentials: false   # zizmor artipacked
       - name: Checkout target repo
         if: matrix.instrument == inputs.instrument
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
+          persist-credentials: false   # zizmor artipacked
           repository: ${{ inputs.target_repo }}
           path: target
       - name: Setup Python 3.11
@@ -127,15 +129,23 @@ jobs:
       fail-fast: false
       matrix:
         target_repo:
-          - Cloudbird-Software/api-gateway
-          - Cloudbird-Software/billing-core
-          - Cloudbird-Software/web-console
+          # REPOS.yaml 真仓清单（AI 幻觉仓勘误：api-gateway/billing-core/web-console 不存在）
+          - Cloudbird-Software/template-service
+          - Cloudbird-Software/AI_Web_School
+          - Cloudbird-Software/Script_Writer
+          - Cloudbird-Software/Shorts_Director
+          - Cloudbird-Software/Use-up-Plan
+          - Cloudbird-Software/mutual
+          - Cloudbird-Software/QW_Arena1
+          - Cloudbird-Software/cnb-bridge
+          - Cloudbird-Software/arbiter
     steps:
       - name: Checkout CI-Workflows（执法工具，钉源）
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
       - name: Setup Python 3.11
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
         with:
+          persist-credentials: false   # zizmor artipacked
           python-version: "3.11"
       - name: Fetch CodeQL alerts（无授权则回落 fixture 演示）
         env:
