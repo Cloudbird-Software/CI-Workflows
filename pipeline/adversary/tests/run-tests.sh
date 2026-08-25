@@ -141,7 +141,7 @@ for line in open(sys.argv[1], encoding='utf-8'):
 adv = [r for r in recs if r.get('role') == 'adversary']
 assert adv, '无 role=adversary 记录'
 r = adv[-1]
-assert r['model'] == 'kimi-for-coding', r['model']
+assert r['model'] == 'sensenova-6.8-flash-lite', r['model']
 assert r['exit_status'] == 'ok', r['exit_status']
 assert r['sampling']['temperature'] == 0.2 and r['seed'] == 67, (r['sampling'], r['seed'])
 assert r['prompt_version'].startswith('sha256:'), r['prompt_version']
