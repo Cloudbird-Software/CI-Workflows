@@ -14,6 +14,10 @@ on:
     inputs:
       model:
         { description: "探测用 provider 模型名", type: string, default: "glm-4.5-air" }
+      endpoint:
+        { description: "base URL 覆盖（默认 org var LLM_ENDPOINT1）", type: string, default: "" }
+      secret_key:
+        { description: "org secret 名覆盖（默认 LLM_API_KEY1）", type: string, default: "" }
   schedule:
     - cron: "17 */6 * * *"   # 每 6h；非整点分钟避开 GitHub 调度洪峰
 
@@ -52,11 +56,16 @@ jobs:
         env:
           # 2026-08-24：org secret LLM_API_KEY 已随供应商切换删除（只剩 KEY1=kimi）——
           # 本 workflow 曾因此连续红（secret 缺失）。endpoint/model 走 org vars。
-          LLM_API_KEY: ${{ secrets.LLM_API_KEY1 }}
+          # 双密钥面：主通道 KEY1+kimi，备胎 KEY_SENSENOVA+商汤（2026-08-25）
+          LLM_API_KEY: ${{ secrets[inputs.secret_key] || secrets.LLM_API_KEY_SENSENOVA || secrets.LLM_API_KEY1 }}
           LLM_BASE_URL: ${{ vars.LLM_ENDPOINT1 }}
+          LLM_BASE_URL_OVERRIDE: ${{ inputs.endpoint || '' }}
           LLM_PROBE_MODEL: ${{ inputs.model || vars.MODEL1 }}
         run: |
           printf 'connectivity probe' > /tmp/p.txt
+          # endpoint 覆盖：输入非空时优先
+          [[ -n "$LLM_BASE_URL_OVERRIDE" ]] && export LLM_BASE_URL="$LLM_BASE_URL_OVERRIDE"
+          echo "probe target: $LLM_BASE_URL / $LLM_PROBE_MODEL"
           reply=$(bash pipeline/metering/metering-wrapper.sh --model "$LLM_PROBE_MODEL" \
             --prompt-file /tmp/p.txt --max-tokens 16 --temperature 0 --thinking disabled \
             --role probe --tag connectivity --usage-compat-dir llm-usage)
