@@ -64,7 +64,7 @@ baselines:
   Shorts_Director: 0
   Script_Writer: 0
   Use-up-Plan: 0
-  AI_Web_School: 0
+  AI_Web_School: 248  # 盘点 2026-08-26：noqa 109 + type-ignore 107 + pragma-no-cover 32（同引擎同排除面复算，与 8-25 门输出 248 一致）——2026-08-20 基线盘点漏计该仓实际标记（#112 同源勘误，ADR-0036）
   Media-Monitor: 0
   mutual: 0
   QW_Arena1: 7   # 盘点 2026-08-25：7 处全部来自 Plan.md 专家计划原文的代码样例（noqa/pragma/type-ignore 散文标记）——按 agent-registry 先例散文计入，保守方向不豁免
