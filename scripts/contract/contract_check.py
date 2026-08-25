@@ -38,7 +38,7 @@ except ImportError:  # pragma: no cover
     raise
 
 POLICY_REPO_API = "repos/Cloudbird-Software/.github/contents/governance/policy/contracts.yaml"
-ADR_DIR_API = "repos/Cloudbird-Software/agent-registry/contents/decisions"
+ADR_DIR_API = "repos/Cloudbird-Software/archive/contents/adr"  # ADR 家园单仓化（ADR-0085）：agent-registry/decisions 已退役停维
 ADR_RE = re.compile(r"\bADR-[0-9]{4}\b")
 HERE = os.path.dirname(os.path.abspath(__file__))
 
@@ -588,13 +588,13 @@ def adr_refs_valid(refs: list[str], verify_existence: bool) -> tuple[bool, list[
         r = subprocess.run(["gh", "api", ADR_DIR_API, "--paginate", "--jq", ".[].name"],
                            capture_output=True, text=True, env=env, timeout=60)
     except (subprocess.TimeoutExpired, OSError) as e:
-        return (False, [f"agent-registry/decisions 清单拉取失败（fail-closed）: {e}"])
+        return (False, [f"archive/adr 清单拉取失败（fail-closed）: {e}"])
     if r.returncode != 0:
-        return (False, [f"agent-registry/decisions 清单拉取失败（fail-closed）: "
+        return (False, [f"archive/adr 清单拉取失败（fail-closed）: "
                         f"{(r.stderr or '').strip()[:200]}"])
     names = r.stdout.split()
     missing = [x for x in refs if not any(n.startswith(f"{x}-") for n in names)]
-    return ((not missing), [f"{x} 不存在于 agent-registry/decisions/（幽灵 ADR）" for x in missing])
+    return ((not missing), [f"{x} 不存在于 archive/adr/（幽灵 ADR）" for x in missing])
 
 # --------------------------------------------------------------- pr 模式 ----
 
