@@ -116,7 +116,6 @@ def run_static(root):
                       | {v["file"] for v in violations}
                       | ({"REMOVAL.md"} if removal_present else set()))
     green = (not violations) and (removal_present or not self_layer)   # REMOVAL.md 义务属桥接层仓；治理仓只查越界
-    green = green or self_layer
     return {
         "mode": "static",
         "date": now_iso(),
