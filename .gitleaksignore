@@ -1,0 +1,8 @@
+# .gitleaksignore —— gitleaks 误报指纹登记（hygiene job 的 Secret scan 消费）
+# 登记 = CI 恢复绿的充要动作；新增指纹必须带定性注释（谁登记、为何是误报）。
+#
+# 2026-08-25（.github#366 会话）：llm-connectivity.yml L60 引用的是 org secret
+# 的 *名字*（GitHub Actions 的 secrets 上下文表达式，两个 LLM key 名的二选一
+# 回退），非密钥值——generic-api-key 规则按字样误报。真值只存 org secrets，
+# 不落仓（INV-06）。
+4e385cb366a0fc6bc614ffb78a0b1771c9f18710:.github/workflows/llm-connectivity.yml:generic-api-key:60

@@ -62,6 +62,16 @@ done
   "$FIX/verify-evidence/report-valid.json" "$FIX/verify-evidence/report-fabricated.json" \
   && pass "回放/verify JSON 可解析" || fail "回放/verify JSON 不可解析"
 
+# 期望模型从 registry 真源动态派生（2026-08-25 修订，.github#366 会话）：硬编码
+# 模型名在每次合法模型切换（ADR-0088 判定模型切换事件）后原地腐烂——
+# kimi-for-coding / sensenova-6.8-flash-lite 两代过期实证（T1/T5 各烂一次）。
+# 断言语义本就是"adversary 用 registry judge-deep 档"——比对对象即 models.yaml；
+# family 仍硬编码 sovereign-family（AR-8 族分离不变量，不随模型切换变）。
+WANT_MODEL=$("$PY" -c "import sys,yaml;print(yaml.safe_load(open(sys.argv[1],encoding='utf-8'))['roles']['judge-deep']['model'].strip())" "$DIR/../models.yaml")
+if [[ -z "$WANT_MODEL" ]]; then
+  fail "T1/T5 期望模型派生失败（models.yaml judge-deep.model 不可读——fail-closed）"
+fi
+
 # ---- T1 配置锁（AC-3） ----
 "$PY" "$DIR/adversary.py" config >"$TMP/lock.json" 2>"$TMP/lock.err"
 RC=$?
@@ -69,7 +79,7 @@ if [[ $RC -eq 0 ]]; then pass "T1 config 输出 rc=0"; else fail "T1 config rc=$
 [[ -s "$TMP/lock.json" ]] && jcheck "T1 alias=judge-deep（锁定的档）" "$TMP/lock.json" \
   "d['alias']=='judge-deep'"
 jcheck "T1 model/family 与 registry judge-deep 档一致（sovereign-family）" "$TMP/lock.json" \
-  "d['model']=='kimi-for-coding' and d['family']=='sovereign-family'"
+  "d['model']=='$WANT_MODEL' and d['family']=='sovereign-family'"
 jcheck "T1 采样参数锁定齐全（max_tokens/temperature/top_p/seed/thinking）" "$TMP/lock.json" \
   "set(d['sampling'])>={'max_tokens','temperature','top_p','seed','thinking'} and d['sampling']['temperature']==0.2 and d['sampling']['seed']==67"
 PROMPT_FILE=$("$PY" -c "import json,sys; print(json.load(open(sys.argv[1],encoding='utf-8'))['prompt_file'])" "$TMP/lock.json")
@@ -141,12 +151,12 @@ for line in open(sys.argv[1], encoding='utf-8'):
 adv = [r for r in recs if r.get('role') == 'adversary']
 assert adv, '无 role=adversary 记录'
 r = adv[-1]
-assert r['model'] == 'sensenova-6.8-flash-lite', r['model']
+assert r['model'] == sys.argv[2], (r['model'], sys.argv[2])
 assert r['exit_status'] == 'ok', r['exit_status']
 assert r['sampling']['temperature'] == 0.2 and r['seed'] == 67, (r['sampling'], r['seed'])
 assert r['prompt_version'].startswith('sha256:'), r['prompt_version']
 sys.exit(0)
-" "$LEDGERS" && pass "T5 role=adversary 记录：model/temperature/seed/prompt_version 留痕" \
+" "$LEDGERS" "$WANT_MODEL" && pass "T5 role=adversary 记录：model/temperature/seed/prompt_version 留痕" \
   || fail "T5 计量记录断言不成立（见上）"
 
 # ---- T6 攻击面清单 requires_explore 语义（#278 AC-16） ----
