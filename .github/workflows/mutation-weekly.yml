@@ -1,0 +1,108 @@
+name: mutation-weekly
+
+# Reusable weekly mutation scoring (IR-0004 AC-1).
+# Called with inputs from other workflows, or run by its own Sunday cron
+# (06:17 UTC - off the top of the hour to dodge cron congestion).
+
+on:
+  workflow_call:
+    inputs:
+      target_repo:
+        description: "Owner/name of the repository to score"
+        required: false
+        type: string
+        default: "Cloudbird-Software/AI_Web_School"
+      tier:
+        description: "Mutation breadth tier (critical | standard | broad)"
+        required: false
+        type: string
+        default: "standard"
+  schedule:
+    - cron: "17 6 * * 0"
+
+permissions:
+  contents: read
+
+jobs:
+  mutation-score:
+    name: Mutation score (${{ inputs.tier || 'standard' }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Check out CI-Workflows (pinned to main)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: main
+          path: ci
+
+      - name: Check out target repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: ${{ inputs.target_repo || 'Cloudbird-Software/AI_Web_School' }}
+          path: target
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: "3.11"
+
+      - name: Install pinned mutation tooling
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install "mutmut==2.4.4" "pytest==8.3.4"
+
+      - name: Resolve module glob from tier
+        env:
+          TIER: ${{ inputs.tier || 'standard' }}
+        run: |
+          case "$TIER" in
+            critical) glob="src/core/**/*.py" ;;
+            broad) glob="**/*.py" ;;
+            *) glob="src/**/*.py" ;;
+          esac
+          echo "MODULE_GLOB=$glob" >> "$GITHUB_ENV"
+
+      - name: Run mutation scoring
+        run: |
+          python ci/pipeline/testing/mutation/run_mutation.py \
+            --repo target \
+            --module "$MODULE_GLOB" \
+            --out result/mutation_result.json \
+            --summary result/summary.md
+
+      - name: Append score to the append-only ledger
+        env:
+          TARGET_REPO: ${{ inputs.target_repo || 'Cloudbird-Software/AI_Web_School' }}
+        run: |
+          set -eu
+          python - <<'PY' >> "$GITHUB_ENV"
+          import json
+          r = json.load(open("result/mutation_result.json", encoding="utf-8"))
+          print("SCORE_PCT=" + str(r["score_pct"]))
+          print("SURVIVED=" + str(r["survived"]))
+          print("TOTAL_MUTANTS=" + str(r["total_mutants"]))
+          print("ENGINE=" + str(r["engine"]))
+          PY
+          python ci/pipeline/testing/mutation/ledger.py append \
+            --ledger ci/ledger/scores.jsonl \
+            --repo "$TARGET_REPO" \
+            --score-pct "$SCORE_PCT" \
+            --engine "$ENGINE" \
+            --survived "$SURVIVED" \
+            --total-mutants "$TOTAL_MUTANTS"
+          python ci/pipeline/testing/mutation/ledger.py verify \
+            --ledger ci/ledger/scores.jsonl
+
+      - name: Publish job summary table
+        if: ${{ hashFiles('result/summary.md') != '' }}
+        run: cat result/summary.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload score artifacts (result JSON + synced ledger)
+        uses: actions/upload-artifact@b4b15b8c7c6ac21ea08fcf65892d2ee8f75cf882
+        with:
+          name: mutation-score
+          path: |
+            result/mutation_result.json
+            result/summary.md
+            ci/ledger/scores.jsonl
+          if-no-files-found: error
