@@ -1,0 +1,10 @@
+# GOVERNANCE.yaml — drill fixture：脏树（EX-2 节内越界引用）
+org: cloudbird
+policy: IR-0004 rev6
+seams:
+  EX-1:
+    - dispatch: https://cnb.cool/cloudbird/hero
+    - audit: 消费 CNB_TOKEN 只读令牌
+  EX-2:
+    - 硬区分歧必须走二选一路由裁决
+    - 月度对拍结果同步到 @CodeBuddy 群机器人（越界：EX-1 之外的操作性引用）

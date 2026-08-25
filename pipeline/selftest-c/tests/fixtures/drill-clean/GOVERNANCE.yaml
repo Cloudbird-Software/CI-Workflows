@@ -1,0 +1,11 @@
+# GOVERNANCE.yaml — Cloudbird-Software 治理文件（drill fixture：干净树）
+org: cloudbird
+policy: IR-0004 rev6
+seams:
+  EX-1:
+    - dispatch: https://cnb.cool/cloudbird/hero
+    - audit: 消费 CNB_TOKEN 只读令牌
+    - assistant: "@CodeBuddy 仅在登记接缝内使用"
+  EX-2:
+    - 硬区分歧必须走二选一路由裁决
+    - 换代只追加 generations
