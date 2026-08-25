@@ -110,12 +110,12 @@ jobs:
           printf '%s' "$PR_TITLE" > "$RUNNER_TEMP/pr-title.txt"
           gh api "repos/$REPO/pulls/$PR_NUM" --jq '.body // ""' > "$RUNNER_TEMP/pr-body.txt"
 
-      - name: 取 ADR 清单（agent-registry decisions——逃生门存在性/scope 判定）
+      - name: 取 ADR 清单（archive/adr——逃生门存在性/scope 判定，ADR-0085 家园迁移跟修）
         if: github.event_name == 'pull_request'
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          repository: Cloudbird-Software/agent-registry
-          sparse-checkout: decisions
+          repository: Cloudbird-Software/archive
+          sparse-checkout: adr
           path: adr-src-tmp
           persist-credentials: false
 
@@ -137,4 +137,4 @@ jobs:
             --policy "$RUNNER_TEMP/ciw-sup/policy/suppressions.yaml" \
             --pr-title "$(cat "$RUNNER_TEMP/pr-title.txt")" \
             --pr-body "$RUNNER_TEMP/pr-body.txt" \
-            --adr-dir "$RUNNER_TEMP/adr/decisions"
+            --adr-dir "$RUNNER_TEMP/adr/adr"

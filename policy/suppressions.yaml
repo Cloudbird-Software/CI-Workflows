@@ -26,8 +26,10 @@ per_pr_max_net_add: 3
 # 逃生门：引用的 ADR 须真实存在于 adr_repo 的 adr_dir，且内容含 scope_marker
 # 字样（scope 覆盖本门）。ADR 检出面为 main（已合入）——未合入的 ADR 不豁免。
 escape_hatch:
-  adr_repo: Cloudbird-Software/agent-registry
-  adr_dir: decisions
+  # ADR-0085 家园迁移跟修（.github #120）：ADR 正本在 archive/adr——agent-registry/decisions
+  # 已全为墓碑（不含 scope marker 字面，逃生门自迁移起失效）；workflow 侧 checkout 同步改指 archive
+  adr_repo: Cloudbird-Software/archive
+  adr_dir: adr
   scope_marker: suppression-budget
 
 # ----------------------------------------------------------------------------
