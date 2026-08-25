@@ -32,6 +32,8 @@ on:
         { description: "被审 spec 所在仓 owner/name（可选，默认本仓；跨仓目标=PM 优先范式常态，ADR-0085）", type: string, required: false, default: "" }
       target_ref:
         { description: "被审仓 ref（可选：分支/SHA——spec PR 审计传 PR head SHA）", type: string, required: false, default: "" }
+      model:
+        { description: "判定模型覆盖（可选，默认 org var MODEL1——供应商模型更名/下线时的应急旋钮，计量语义不变）", type: string, required: false, default: "" }
 
 permissions:
   contents: read
@@ -60,7 +62,7 @@ jobs:
       # LLM 供应商 = kimi k2.7（org vars LLM_ENDPOINT1/MODEL1；secret LLM_API_KEY1）。
       # 注意 wrapper 消费的是 LLM_BASE_URL（metering-wrapper.sh env 契约）。
       LLM_BASE_URL: ${{ vars.LLM_ENDPOINT1 }}
-      LLM_MODEL: ${{ vars.MODEL1 }}
+      LLM_MODEL: ${{ inputs.model || vars.MODEL1 }}
 
     steps:
       # ---------- 受信准备阶段（egress 加固窗口之前） ----------
