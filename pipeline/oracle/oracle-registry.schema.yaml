@@ -1,0 +1,103 @@
+# =====================================================================
+# oracle-registry.schema.yaml — Cloudbird-Software
+# 依据：IR-0004 rev6 · AC-11（注册表）/ AC-12（对拍）/ AC-13（消费）/ AC-19（脱离）
+# 语义：本文件是 oracle 注册表的数据契约（人读注释 + 机读约束），可被
+#       oracle/miniyaml.py 解析；校验器实现见 oracle/registry.py::validate_registry。
+# 范式：PM 优先——oracle 制作可选，但注册表接口与消费必须。
+# =====================================================================
+schema: oracle-registry
+version: "1"
+organization: Cloudbird-Software
+document: "IR-0004 rev6 AC-11/12/13/19"
+paradigm: "PM 优先：oracle 制作可选，接口与消费必须；fan-out 生产者可选，消费者常在"
+
+top_level:
+  entries:
+    type: list
+    required: true
+    comment: "oracle 条目集合；每个条目=一个具体的冻结实现（换代=旧条目 retired + 新代追加 generations）"
+    item: entry
+
+# ---------------- entry 字段（除标注外全部必填；未知字段忽略） ----------------
+entry:
+  name:
+    type: string
+    required: true
+    comment: "oracle 名称；同一 name 可跨代复用（不同 frozen_sha）"
+  host_repo:
+    type: string
+    required: true
+    comment: "宿主仓库（org/repo）"
+  target_surface:
+    type: string
+    required: true
+    comment: "被对拍的目标面（如 parse / plan / emit）"
+  frozen_sha:
+    type: string
+    required: true
+    pattern: "^[0-9a-f]{40}$"
+    comment: "当前活跃代的提交 SHA；40 位小写十六进制，大写/短写/非十六进制一律非法"
+  cluster:
+    type: string
+    required: true
+    comment: "解相关簇编号：同簇禁止同时充当 champion 与 oracle"
+  decorrelation_reason:
+    type: string
+    required: true
+    comment: "与 champion 的解相关依据（不同实现/不同数据/不同作者），必填非空"
+  hard_zone:
+    type: list-of-glob
+    required: true
+    comment: "硬区 glob 列表（fnmatch，区分大小写）：此区输出分歧=exit 2，走二选一路由裁决"
+  soft_zone:
+    type: list-of-glob
+    required: true
+    comment: "软区 glob 列表：此区分歧=exit 0 + 警告清单（不阻断）"
+  status:
+    type: enum
+    required: true
+    values:
+      - candidate
+      - frozen
+      - retired
+    comment: "retired 只允许由 frozen 迁移而来（registry.py retire 强制）；candidate 不参与对拍"
+  generations:
+    type: list
+    required: true
+    comment: "换代历史：只追加（append-only）；历史条目的 sha/frozen_at/note 一经写入不可改写"
+    item: generation
+
+# ---------------- generation 字段 ----------------
+generation:
+  sha:
+    type: string
+    required: true
+    pattern: "^[0-9a-f]{40}$"
+    comment: "该代的冻结 SHA"
+  frozen_at:
+    type: string
+    required: true
+    comment: "冻结时刻（ISO-8601 UTC，如 2026-08-24T00:00:00Z）；串比较须单调不减"
+  note:
+    type: string
+    required: false
+    comment: "换代备注（如 cycle <old8>→<new8>）；不参与校验，只留痕"
+
+# ---------------- 不变量（校验器逐条执行；违反=畸形注册表 exit 1） ----------------
+invariants:
+  - "frozen_sha 与 generations[].sha 必须各自匹配 ^[0-9a-f]{40}$"
+  - "status 只允许 candidate | frozen | retired；retired 只能来自 frozen"
+  - "generations 只追加：sha 不得重复、frozen_at 不得倒序——倒序/重复即篡改证据"
+  - "status 为 frozen 或 retired 时：generations 非空，且最后一代 sha == frozen_sha"
+  - "status 为 candidate 时：generations 允许为空（首次冻结发生在 cycle 换代时）"
+  - "(name, frozen_sha) 二元组在 entries 内唯一（register 的幂等键）"
+
+consumers:
+  - "oracle/diffbench.py（AC-12：按 hard_zone/soft_zone glob 消费）"
+  - "oracle/cycle.py（换代：旧代 retired、新代追加 generations）"
+  - "fanout/consumer.py（AC-13：经 products 目录间接关联 spec_hash/base_sha）"
+
+exit_codes:
+  registry: "0=合法/幂等；1=畸形注册表（含篡改检出）或非法迁移"
+  cycle: "0=换代完成；1=旧代非 frozen/新代非 candidate/形状非法"
+  diffbench: "0=等价或仅软区分歧；1=注册表非法/对拍未运行/输入缺失/超时；2=硬区分歧"

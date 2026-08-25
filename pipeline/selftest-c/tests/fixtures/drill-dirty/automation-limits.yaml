@@ -1,0 +1,4 @@
+# 接缝配套：自动化限额（白名单文件，允许操作性引用）
+cnb:
+  api: https://api.cnb.cool/v1
+  monthly_calls: 500

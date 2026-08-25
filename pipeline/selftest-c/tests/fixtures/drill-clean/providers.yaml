@@ -1,0 +1,4 @@
+providers:
+  - id: cnb
+    url: https://cnb.cool
+    credential: CNB_TOKEN
