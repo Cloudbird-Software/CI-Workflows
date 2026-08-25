@@ -115,7 +115,9 @@ def run_static(root):
     impacted = sorted(set(seam_files)
                       | {v["file"] for v in violations}
                       | ({"REMOVAL.md"} if removal_present else set()))
-    green = (not violations) and (removal_present or not self_layer)   # REMOVAL.md 义务属桥接层仓；治理仓只查越界
+    # 桥接层仓（自层）：REMOVAL.md 在即绿（层内引用皆删除区内，violations 仅信息面）；
+    # 治理仓：只看三接缝外越界（REMOVAL 义务属桥接层仓）
+    green = removal_present if self_layer else not violations
     return {
         "mode": "static",
         "date": now_iso(),
