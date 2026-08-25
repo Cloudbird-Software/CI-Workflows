@@ -62,12 +62,13 @@ baselines:
   agent-tools: 0
   agent-platform: 0
   Shorts_Director: 0
-  Script_Writer: 0
+  Script_Writer: 5   # 盘点 2026-08-26：sidecar/ 5 处 noqa（N802/BLE001/E402，均带理由注释）——2026-08-20 盘点后 sidecar 入树未同步棘轮（ADR-0036 决策 4 同步义务）
   Use-up-Plan: 0
   AI_Web_School: 248  # 盘点 2026-08-26：noqa 109 + type-ignore 107 + pragma-no-cover 32（同引擎同排除面复算，与 8-25 门输出 248 一致）——2026-08-20 基线盘点漏计该仓实际标记（#112 同源勘误，ADR-0036）
   Media-Monitor: 0
   mutual: 0
   QW_Arena1: 7   # 盘点 2026-08-25：7 处全部来自 Plan.md 专家计划原文的代码样例（noqa/pragma/type-ignore 散文标记）——按 agent-registry 先例散文计入，保守方向不豁免
+  Media-Monitor: 0   # 盘点 2026-08-26：新仓接入入册（ADR-0036"新仓接入须先盘点总量入册"）——main 树零标记（与运行时同规则 grep -E 计数）
   Viral_Radar: 0   # 盘点 2026-08-25：template-service 基线新建（Initial commit 干净树）+ specs 纯文本 PR，零抑制标记；新仓接入入册（ADR-0091 建仓申报）
 
 # ----------------------------------------------------------------------------
