@@ -23,7 +23,7 @@ roles:
     # 第三族 alias——family=sovereign-family，≠ builder(coder-fast=flash-family)
     # ≠ test-author(reviewer=flagship-family)，AR-8 跨族分离。锁定参数与
     # pipeline/adversary/adversary-config.yaml 交叉断言（漂移即 adversary exit 2）
-    model: sensenova-6.8-flash-lite  # 商汤日日新（供应商切换，2026-08-25）
+    model: kimi-for-coding
     max_tokens: 16384
     temperature: 0.2
     thinking: enabled
