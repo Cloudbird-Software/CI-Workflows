@@ -41,6 +41,11 @@ jobs:
     steps:
       - name: 非 PR 事件（n/a-success）
         if: github.event_name != 'pull_request'
+        env:
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD: ${{ github.event.pull_request.head.sha }}
+          SPECS_DIR_IN: ${{ inputs.specs-dir }}
+          GEN_SUB_IN: ${{ inputs.generated-subdir }}
         run: |
           echo "::notice::spec-dsl-gate 只对 pull_request 事件判定（推送面无 base...head 的 PR diff 语义）——本事件 n/a（success），调用方 gate 无需登记 EXPECTED_SKIP"
 
@@ -76,10 +81,10 @@ jobs:
         if: github.event_name == 'pull_request'
         run: |
           set -euo pipefail
-          BASE="${{ github.event.pull_request.base.sha }}"
-          HEAD="${{ github.event.pull_request.head.sha }}"
-          SPECS_DIR="${{ inputs.specs-dir }}"
-          GEN_SUB="${{ inputs.generated-subdir }}"
+          BASE="$PR_BASE"
+          HEAD="$PR_HEAD"
+          SPECS_DIR="${SPECS_DIR_IN:-specs}"
+          GEN_SUB="${GEN_SUB_IN:-suite/generated}"
           mapfile -t CHANGED < <(git diff --name-only "$BASE" "$HEAD" -- "$SPECS_DIR/" | sort -u || true)
           if [ "${#CHANGED[@]}" -eq 0 ]; then
             echo "::notice::无 $SPECS_DIR/ 变更——n/a（success）"
