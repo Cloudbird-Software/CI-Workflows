@@ -14,6 +14,8 @@ for _root in (_here.parents[2], _here.parents[1]):
 else:
     raise ImportError("oracle/fanout/drill 模块根未定位（集成布局异常）")
 
+BUILD_C = _root   # 兼容符号：test_drill 等引用的模块根（集成布局=pipeline/）
+
 from oracle.miniyaml import dump_yaml, load_yaml  # noqa: E402
 
 SHA_A = "a" * 40
