@@ -1,0 +1,98 @@
+# metamorphic catalog —— 蜕变关系候选清单（IR-0004 AC-4，rev6：仪器+机械判定）
+# 字段：id / relation（关系陈述）/ verify（机械可验证方式）/ applies_to（适用面）/
+#       status: candidate | implemented | rejected
+# implemented 条目必须在 relations.py 有同名可执行检查（CI 会交叉断言两者一致）。
+version: 1
+relations:
+  - id: MR-001
+    relation: "输入重排（集合语义输入）→ 输出结果集等价（多重集等价，忽略顺序）"
+    verify: "sorted(canon(output_before)) == sorted(canon(output_after))，且 input_after 是 input_before 的重排（前置条件机械校验）"
+    applies_to:
+      - "集合返回型 API（检索/聚合/去重）"
+      - "批量查询端点"
+    status: implemented
+  - id: MR-002
+    relation: "相同输入重试 → 输出幂等（第二次调用结果与第一次逐字段相等）"
+    verify: "deep_equal(output_before, output_after)"
+    applies_to:
+      - "写侧幂等端点（PUT/DELETE/结算）"
+      - "任何宣称 at-least-once 安全的操作"
+    status: implemented
+  - id: MR-003
+    relation: "单元拆分（一个大单位拆成若干小单位）→ 总量守恒（各部分输出数值之和等于整体输出）"
+    verify: "sum(numeric_leaves(output_after)) == numeric_total(output_before)"
+    applies_to:
+      - "计费/库存/配额等可加量"
+    status: implemented
+  - id: MR-004
+    relation: "查询关键词大小写折叠 → 结果集不变"
+    verify: "query.lower() 与 query 原文两次调用结果集等价"
+    applies_to:
+      - "大小写不敏感检索"
+    status: candidate
+  - id: MR-005
+    relation: "分页拼接 → 全集等价（各页结果拼接去重后等于一次性全量结果）"
+    verify: "concat(pages) 去重后多重集 == 全量结果多重集"
+    applies_to:
+      - "列表/搜索端点"
+    status: candidate
+  - id: MR-006
+    relation: "空输入 → 空输出或文档化默认值（不抛异常）"
+    verify: "f([]) in ([], 文档化默认值集合) 且无异常"
+    applies_to:
+      - "批处理/聚合函数"
+    status: candidate
+  - id: MR-007
+    relation: "数量倍增 → 总价线性（n→2n 时总价×2，容差 1e-9）"
+    verify: "abs(total(2n) - 2*total(n)) <= 1e-9 * max(1, total(n))"
+    applies_to:
+      - "定价/折扣计算"
+    status: candidate
+  - id: MR-008
+    relation: "附加空标签集 → 输出不变"
+    verify: "f(x + 空集合字段) == f(x)"
+    applies_to:
+      - "带可选集合字段的配置/资源创建"
+    status: candidate
+  - id: MR-009
+    relation: "时间窗口整体平移 → 窗口统计量等价（数据同步平移）"
+    verify: "stats(window+t) == stats(window)（逐字段）"
+    applies_to:
+      - "时序聚合/报表"
+    status: candidate
+  - id: MR-010
+    relation: "Unicode NFC/NFD 等价输入 → 等价输出（规范化不变）"
+    verify: "f(NFC(s)) 与 f(NFD(s)) 规范化后相等"
+    applies_to:
+      - "文本处理/用户名匹配"
+    status: candidate
+  - id: MR-011
+    relation: "删除操作重复调用 → 幂等（第二次返回一致终态，不产生新副作用）"
+    verify: "delete(x); delete(x) 两次后状态与一次一致"
+    applies_to:
+      - "资源删除端点"
+    status: candidate
+  - id: MR-012
+    relation: "并发拆分请求 → 总量守恒（拆成 k 份并发提交，总量不变）"
+    verify: "sum(parts) == total（同 MR-003，附带并发执行）"
+    applies_to:
+      - "转账/积分拆分"
+    status: candidate
+  - id: MR-013
+    relation: "输入字典序重排 → 去重计数不变"
+    verify: "distinct_count(shuffle(xs)) == distinct_count(xs)"
+    applies_to:
+      - "去重/计数管道"
+    status: candidate
+  - id: MR-014
+    relation: "输出序列化字节跨版本稳定"
+    verify: "无机械可验证方式（依赖序列化器实现细节与版本策略，非被测系统契约）"
+    applies_to:
+      - "无（已否决）"
+    status: rejected
+  - id: MR-015
+    relation: "错误消息文本在重试间精确匹配"
+    verify: "无机械可验证方式（消息措辞属可变实现细节；应只断言错误码/类别）"
+    applies_to:
+      - "无（已否决）"
+    status: rejected

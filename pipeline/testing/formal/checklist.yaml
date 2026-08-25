@@ -1,0 +1,74 @@
+# formal checklist —— 形式化方法适用性判定表（IR-0004 AC-7，fail-closed）
+# 每项：id / kind(positive|negative) / label / source（card/spec 元数据字段名，点路径）
+#       rule（机械判断规则）/ semantic_fields（human/LLM 填充位，只留痕不自动判）
+# risk_gate：risk_level 缺失 => final=needs_risk_level（fail-closed，机械优先）。
+version: 1
+mode: fail-closed
+risk_gate:
+  field: risk_level
+  allowed:
+    - high
+    - medium
+    - low
+items:
+  - id: F-POS-1
+    kind: positive
+    label: "数学定义的算法核心（有明确代数/数学规格）"
+    source: spec.math_definition
+    rule:
+      equals: true
+    semantic_fields:
+      - field: spec.algorithm_definition_ref
+        filler: human
+  - id: F-POS-2
+    kind: positive
+    label: "状态机/协议（状态与转移可枚举）"
+    source: spec.has_state_machine
+    rule:
+      equals: true
+    semantic_fields:
+      - field: spec.state_machine_diagram_ref
+        filler: human
+  - id: F-POS-3
+    kind: positive
+    label: "密码原语（随机性/认证/加密）"
+    source: spec.crypto_primitive
+    rule:
+      equals: true
+  - id: F-POS-4
+    kind: positive
+    label: "高风险稳定小块（高风险 + ≤500 行 + 90天改动 ≤5 次）"
+    source: risk_level
+    rule:
+      equals: high
+    extra_conditions:
+      - source: loc
+        rule:
+          lte: 500
+      - source: commits_last_90d
+        rule:
+          lte: 5
+  - id: F-NEG-1
+    kind: negative
+    label: "胶水代码（编排/粘合，无独立规格）"
+    source: code_kind
+    rule:
+      equals: glue
+  - id: F-NEG-2
+    kind: negative
+    label: "无半形式化起点（无任何可枚举不变量/契约文本）"
+    source: spec.semiformal_spec
+    rule:
+      equals: false
+  - id: F-NEG-3
+    kind: negative
+    label: "演进契约（契约高频变动，形式化追不上）"
+    source: spec.contract
+    rule:
+      equals: evolving
+  - id: F-NEG-4
+    kind: negative
+    label: "循环无界/输入无界（符号执行不终止风险）"
+    source: spec.unbounded_input
+    rule:
+      equals: true
