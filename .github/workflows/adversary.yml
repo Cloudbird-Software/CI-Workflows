@@ -28,6 +28,10 @@ on:
         { description: "spec PR 编号（可选，与 pr_repo 配合）", type: number, required: false }
       head_sha:
         { description: "spec PR head SHA（可选——给定时免 API 解析直接挂接）", type: string, required: false, default: "" }
+      target_repo:
+        { description: "被审 spec 所在仓 owner/name（可选，默认本仓；跨仓目标=PM 优先范式常态，ADR-0085）", type: string, required: false, default: "" }
+      target_ref:
+        { description: "被审仓 ref（可选：分支/SHA——spec PR 审计传 PR head SHA）", type: string, required: false, default: "" }
 
 permissions:
   contents: read
@@ -65,6 +69,17 @@ jobs:
         with:
           persist-credentials: false   # 账本同步走显式 GH_TOKEN 的 contents API，不落 git 凭据
 
+      # 跨仓 spec 目标（ADR-0085 实弹发现收口）：本仓 checkout 供审判脚本与账本，
+      # 目标仓（默认治理仓）checkout 至 external-target/ 供被审 spec+suite
+      - name: Checkout 跨仓目标仓（可选）
+        if: inputs.target_repo != '' || github.event.client_payload.target_repo != ''
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ inputs.target_repo || github.event.client_payload.target_repo }}
+          ref: ${{ inputs.target_ref || github.event.client_payload.target_ref || 'main' }}
+          path: external-target
+          persist-credentials: false
+
       - name: 拉 gh-app-token.sh（.github 仓，ADR-0044——写回令牌铸造脚本）
         # 前置于 egress 加固窗口（harden-runner 会拦后续 git fetch）；仅当提供
         # PR 上下文（dispatch inputs 或 repository_dispatch 载荷）时执行。
@@ -96,6 +111,11 @@ jobs:
           if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
             t="$ADV_TARGET_IN"
             r="$ADV_REPLAY_IN"
+          # 跨仓目标重定位（ADR-0085）：前缀改写至 external-target/——路径校验（相对+无..）语义不变
+          XT_REPO="${{ inputs.target_repo || github.event.client_payload.target_repo || '' }}"
+          if [[ -n "$XT_REPO" ]]; then
+            t="external-target/$t"
+          fi
           else
             t="${ADV_SPEC_PATH:-}"
             r=""
