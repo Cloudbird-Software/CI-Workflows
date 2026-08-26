@@ -21,7 +21,6 @@
 from __future__ import annotations
 
 import argparse
-import copy
 import json
 import os
 import re

@@ -16,7 +16,7 @@ import unittest
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import trust_gate  # noqa: E402
 
-from _helpers import PREDICATES, UNLOCK_STATE, all_ev, bundle, reconciled, run_cli, write_jsonl  # noqa: E402
+from _helpers import all_ev, bundle, reconciled, run_cli, write_jsonl  # noqa: E402
 
 
 class TestCliChain(unittest.TestCase):

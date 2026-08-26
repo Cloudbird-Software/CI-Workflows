@@ -7,7 +7,6 @@
 排除域永远人签（证据全绿也不放行）；锁定域只出 would-* 形态（executed=false）。
 零网络零 LLM。
 """
-import copy
 import os
 import sys
 import unittest

@@ -25,7 +25,6 @@ import argparse
 import datetime as dt
 import hashlib
 import json
-import math
 import os
 import re
 import subprocess
@@ -47,7 +46,7 @@ except ImportError:  # noqa: BLE001
 # 未安装时回退到自研解析（replay/直连均可）。
 try:
     import llm_verifier as _llmv
-    from llm_verifier.fine_grained_reward import call_verifier, create_openai_client, extract_score
+    from llm_verifier.fine_grained_reward import call_verifier, create_openai_client
     _LLMV_AVAILABLE = True
 except Exception:  # noqa: BLE001
     _LLMV_AVAILABLE = False
