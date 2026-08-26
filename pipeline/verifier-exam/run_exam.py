@@ -15,8 +15,8 @@ MT-Bench 位置交换协议（arXiv:2306.05685）；金丝雀 = null-model 攻�
 - 输入隔离（对抗防御，决策 7）：黄金标签/gold_rationale/expected 永不进入判官
   输入——判官只见 prompt 与 responses/response。
 - 回放模式（--judge-mode replay）：零真实 LLM——fixture 决策表模拟候选判官；
-  记录 judge_mode=replay，此类成绩不可用于 agent-registry 执照注册
-  （scripts/verifier-license.py 拒绝，防"回放满分=持证"）。
+  记录 judge_mode=replay，此类成绩不可用于 verifier 持证判定（防"回放满分=持证"；
+  执照注册层随 ADR-0085 退役，回放成绩仅 shadow 观察）。
 - api 模式：真实判官调用一律经 scripts/llm-call.sh（一切 LLM 调用唯一计量
   入口，INV-06 / ADR-0048）；采样参数全锁定进成绩记录。
 

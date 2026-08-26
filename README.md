@@ -112,8 +112,8 @@ Cloudbird Software 组织的可复用工作流（唯一真相源）。业务仓�
 - **非 PR 事件（push）本门为 n/a-success**（无 base...head 的 PR diff 语义），调用方 gate
   无需为它登记 ADR-0032 的 EXPECTED_SKIP（与 diff-coverage 的 job 级 if + EXPECTED_SKIP
   登记方案二选一，本门选 n/a-success 以减少 caller 配置面）。
-- 命中规则的 PR 想放行：title/body 引用 ADR-NNNN（须存在于 agent-registry/decisions，防
-  幽灵 ADR）→ 豁免但计数入账（job log `TI-COUNT escape_hatch_waived=` + step summary）。
+- 命中规则的 PR 想放行：title/body 引用 ADR-NNNN（须存在于 archive/adr/，ADR-0085 家园
+  单仓化，防幽灵 ADR）→ 豁免但计数入账（job log `TI-COUNT escape_hatch_waived=` + step summary）。
 - 执法工具从本 workflow 同 ref checkout（`github.workflow_ref` 解析，不取 caller 仓内
   副本）；每次执法前前置跑 T8 fixture 自检（15 case 预标注全比对，`scripts/
   test-integrity-fixtures/`）。检测器/模式变更也经本仓 ci.yml 的
@@ -123,7 +123,10 @@ Cloudbird Software 组织的可复用工作流（唯一真相源）。业务仓�
 
 - **单点引用**：全部业务仓 gate 引用本仓 `@v1`——本仓 main 受 org ruleset 保护（BP-1/BP-2：PR+squash、gate required、owner-only review），误删/归档走 GitHub 90 天恢复窗口；不设镜像仓（双维护成本>收益，防线已由 ruleset+review 承担）。
 - **`Cloudbird-Software/*` actions 白名单通配**：通配=信任组织内全部自有 action；本仓 workflow 变更属 C1 治理路径（GOVERNANCE flows.governance_change，owner-only review）。对高敏感业务仓，可改 pin commit sha 引用（`uses: Cloudbird-Software/CI-Workflows/.github/workflows/check.yml@<sha>`）换取不可变性、放弃自动跟随——按仓风险自选。
-- **verifier 判卷（AR-9）状态**：注册层已声明（agent-registry standards/checks.yaml：`test-tree-freeze` active——test-author 冻结测试树）；产品仓侧的 `mechanism:verifier` 判卷 workflow 尚未实装，属 ADR-0010 二期（与 `pr-identity-path-matrix` 同批，见 checks.yaml planned 项）。首个产品仓接入时实装——当前无业务仓消费，提前实装无消费方可验证。
+- **verifier 判卷（AR-9）状态**：注册层随 ADR-0085 退役（agent-registry 已归档，git 历史即
+  存档）；产品仓侧的 `mechanism:verifier` 判卷 workflow 尚未实装（历史规划见退役快照
+  archive/retired/agent-registry/ 的 checks.yaml——`pr-identity-path-matrix` 等同批）。首个
+  产品仓接入时实装——当前无业务仓消费，提前实装无消费方可验证。
 - **dependabot automerge（SC-3）**：判定逻辑在 template-service 仓（automerge workflow）；依赖审批 approver/SLA 已定义于 .github governance/policy/languages.yaml#dependency_policy（owner 审批，7 天 SLA）。
 
 ## 版本策略

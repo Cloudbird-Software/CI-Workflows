@@ -14,10 +14,11 @@ version: 1
 #   逃生门：    PR 引用 ADR-NNNN 且该 ADR 内容含 escape_hatch.scope_marker 字样 →
 #               豁免绿 + 入账输出（棘轮同步义务见 ADR-0036 决策 4）
 #
-# 基线盘点：2026-08-20 对 REPOS.yaml 全部 11 个 active 仓 main 计数
-# （与运行时同一计数规则：grep -E 同引擎 + 同排除面）。盘点时点全 org 总量为 0，
-# agent-registry 的 3 来自 ADR-0036 自身正文的标记名列举（散文计入是保守方向：
-# 多计不少计，由预算与逃生门吸收）。
+# 基线盘点：2026-08-20 对 REPOS.yaml 全部 active 仓 main 计数
+# （与运行时同一计数规则：grep -E 同引擎 + 同排除面）。盘点时点全 org 总量为 0。
+# ADR-0085 退役仓（agent-registry/agent-tools/agent-platform）已移出棘轮册——
+# 归档只读仓不再有 PR 面；其历史基线（agent-registry 3，来自 ADR-0036 正文
+# 标记名列举）随退役冻结于 git 历史。
 # ============================================================================
 
 # 单 PR 净增阈值（净增 = diff 新增抑制标记数 − 删除数）
@@ -59,17 +60,13 @@ markers:
 baselines:
   .github: 0
   CI-Workflows: 0
-  agent-registry: 3
   template-service: 0
-  agent-tools: 0
-  agent-platform: 0
   Shorts_Director: 0
   Script_Writer: 5   # 盘点 2026-08-26：sidecar/ 5 处 noqa（N802/BLE001/E402，均带理由注释）——2026-08-20 盘点后 sidecar 入树未同步棘轮（ADR-0036 决策 4 同步义务）
   Use-up-Plan: 0
   AI_Web_School: 248  # 盘点 2026-08-26：noqa 109 + type-ignore 107 + pragma-no-cover 32（同引擎同排除面复算，与 8-25 门输出 248 一致）——2026-08-20 基线盘点漏计该仓实际标记（#112 同源勘误，ADR-0036）
-  Media-Monitor: 0
   mutual: 0
-  QW_Arena1: 7   # 盘点 2026-08-25：7 处全部来自 Plan.md 专家计划原文的代码样例（noqa/pragma/type-ignore 散文标记）——按 agent-registry 先例散文计入，保守方向不豁免
+  QW_Arena1: 7   # 盘点 2026-08-25：7 处全部来自 Plan.md 专家计划原文的代码样例（noqa/pragma/type-ignore 散文标记）——散文计入是保守方向不豁免（ADR-0085 前的 agent-registry 先例，仓已归档）
   Media-Monitor: 0   # 盘点 2026-08-26：新仓接入入册（ADR-0036"新仓接入须先盘点总量入册"）——main 树零标记（与运行时同规则 grep -E 计数）
   Viral_Radar: 0   # 盘点 2026-08-25：template-service 基线新建（Initial commit 干净树）+ specs 纯文本 PR，零抑制标记；新仓接入入册（ADR-0091 建仓申报）
 

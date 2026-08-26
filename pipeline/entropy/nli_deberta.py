@@ -7,7 +7,8 @@ W4-C1 .github#220 / ADR-0066 决策 2："双向蕴含判定 NLI 模型 DeBERTa-M
 deberta-mnli` 惰性加载；未部署时 fail-closed 拒判（诚实报错，不静默回落
 heuristic——回落会让"语义聚簇不误报"的承诺失真）。
 
-部署形态（org 内网推理服务，版本钉死入 agent-registry models.yaml 条目）：
+部署形态（org 内网推理服务，版本钉入本仓 pipeline/models.yaml 条目——原
+agent-registry registry/models.yaml 已随 ADR-0085 退役停维）：
   1. 模型：microsoft/deberta-v3-base-mnli（或等效 NLI 模型），版本+权重
      sha256 钉入 registry（ADR-0066 风险缓解："NLI 蕴含判定误差→模型钉版+
      人工抽检校准"）。

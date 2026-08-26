@@ -30,14 +30,8 @@ repos:
       - {kind: jsonschema, path: "schema/common/**"}
     migrations: null
 
-  agent-registry:
-    # L1 声明层契约（registry/schemas）。接线延后：validate.yml 为单 job 架构，
-    # 接入需先做 aggregator 拆分（见 .github#89 留言，ADR-0038 决策 9）
-    contracts:
-      - {kind: jsonschema, path: "registry/schemas/**"}
-    migrations: null
-
   # 盘点备注（不声明、不接线）：
-  #   agent-platform —— 仅 vendor/agent-registry/ 拷贝，源头在 agent-registry
+  #   agent-registry / agent-platform / agent-tools —— 已随 ADR-0085 退役归档，
+  #     不再有契约变更（历史快照见 archive/retired/）
   #   mutual        —— spec/01-schemas.md 为散文 schema，不可机判
-  #   Script_Writer / agent-tools / Use-up-Plan / .github / CI-Workflows —— 无契约面
+  #   Script_Writer / Use-up-Plan / .github / CI-Workflows —— 无契约面

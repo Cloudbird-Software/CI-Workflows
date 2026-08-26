@@ -10,7 +10,8 @@ name: verifier-exam
 #   - 任一考试分项不过=拒上岗（exit 1）——exam-replay 用回放判官演示门语义
 #     （gold 轨道须过 / positional 轨道须被拒），真实判官经 dispatch(api) 考试。
 #   - 无凭据=fixture 回放模式（本卡零真实 LLM 自测约定）；回放成绩
-#     judge_mode=replay，不可注册 agent-registry 执照（verifier-license.py 拒绝）。
+#     judge_mode=replay，不可用于 verifier 持证判定（执照注册层随 ADR-0085 退役，
+#     仅 shadow 观察）。
 #   - 考试集钉版 pipeline/verifier-exam/examset/v1（freeze_hash 锚 exam-pin.yaml），
 #     每日 drift 检查对照 archive 正本——改集=新版本号（fail-closed）。
 #   - 校准回流/rubric shadow 只记录不阻断（AC-3/AC-4）。

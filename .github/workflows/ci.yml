@@ -231,11 +231,10 @@ jobs:
           fi
 
       # adr-required（红队二批 ADR-0016 决策 1：README「修改规则」声明本检查但此前
-      # 无实现——声执不一致。对齐 .github gate.yml / agent-registry validate.yml 同模型）：
+      # 无实现——声执不一致。对齐 .github gate.yml 同模型）：
       # 本仓整体即 C1 治理资产（全部 workflow 被业务仓 @v1 消费、README/zizmor 是治理声明）。
-      # 被引 ADR 的存在性不在 PR 上下文做：决策落盘在私有仓 agent-registry/decisions/，
-      # PR 上下文 GITHUB_TOKEN 无跨仓读权，注入 org secret = 向 PR 控制代码暴露凭据
-      # （zizmor secret-exposure 模型）——存在性由 .github drift-check.sh §10 每日后验。
+      # 被引 ADR 的存在性不在 PR 上下文做：决策落盘在公开仓 archive/adr/（ADR-0085
+      # 家园单仓化），存在性由 .github drift-check.sh §10 每日后验。
       - name: adr-required（C1 变更须引用 ADR）
         if: github.event_name == 'pull_request'
         env:
@@ -282,6 +281,6 @@ jobs:
           if { echo "$PR_TITLE"; echo "$PR_BODY"; } | grep -qE "$ADR_RE"; then
             echo "OK adr-required: $( { echo "$PR_TITLE"; echo "$PR_BODY"; } | grep -oE "$ADR_RE" | sort -u | tr '\n' ' ')（存在性后验：.github drift-check §10）"
           else
-            echo "::error::C1 路径变更但 PR 未引用任何 ADR-NNNN（README 修改规则：本仓变更属 C1 治理路径，须引用 ADR——落盘 agent-registry/decisions/）"
+            echo "::error::C1 路径变更但 PR 未引用任何 ADR-NNNN（README 修改规则：本仓变更属 C1 治理路径，须引用 ADR——落盘 archive/adr/，ADR-0085）"
             exit 1
           fi
