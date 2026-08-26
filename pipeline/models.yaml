@@ -1,7 +1,7 @@
 version: 1
 # 角色档 → provider 模型解析表（IFACE-06 第一期，ADR-0048 决策 3 / ADR-0050）
 # - 版本化资产：改动走 PR（C1）；agent 声明仍只引用角色档，不直写模型名
-# - alias 语义与族级独立性对齐 registry/models.yaml（AR-8）
+# - alias 语义与族级独立性（AR-8）以本表为准——原 registry/models.yaml 随 ADR-0085 退役
 # - thinking: GLM 4.5+ 为推理模型——非 reasoning 场景必须 disabled，否则正文
 #   被思维链吃掉且计量口径失真（连通性实测教训，CI-Workflows PR#30）
 roles:
@@ -19,8 +19,8 @@ roles:
     thinking: disabled
     use_for: [连通性探测]
   judge-deep:
-    # 恶意合规 adversary 专用档（W4-C2 .github#221，ADR-0067）：registry/models.yaml
-    # 第三族 alias——family=sovereign-family，≠ builder(coder-fast=flash-family)
+    # 恶意合规 adversary 专用档（W4-C2 .github#221，ADR-0067）：第三族
+    # alias——family=sovereign-family，≠ builder(coder-fast=flash-family)
     # ≠ test-author(reviewer=flagship-family)，AR-8 跨族分离。锁定参数与
     # pipeline/adversary/adversary-config.yaml 交叉断言（漂移即 adversary exit 2）
     model: deepseek-v4-flash  # 商汤日日新（2026-08-25，sensenova-6.8 推理消耗切直出）

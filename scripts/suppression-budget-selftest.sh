@@ -42,7 +42,7 @@ expect_lacks() {  # $1=子串, $2=描述
 cat >"$W/policy.yaml" <<'YAML'
 version: 1
 per_pr_max_net_add: 3
-escape_hatch: {adr_repo: Cloudbird-Software/agent-registry, adr_dir: decisions, scope_marker: selftest-scope}
+escape_hatch: {adr_repo: Cloudbird-Software/archive, adr_dir: adr, scope_marker: selftest-scope}
 markers:
   - {id: noqa, kind: regex, pattern: '#[[:space:]]*noqa\b'}
   - {id: eslint-disable, kind: regex, pattern: '\beslint-disable\b'}

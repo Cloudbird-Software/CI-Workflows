@@ -33,7 +33,12 @@ except ImportError:  # noqa: BLE001
 HERE = os.path.dirname(os.path.abspath(__file__))
 STRATEGIES_PATH = os.path.join(HERE, "attack-strategies.yaml")
 
-KNOWN_REPOS = [".github", "CI-Workflows", "template-service", "archive", "agent-registry"]
+# S8 blastRadius 已知仓全集——对齐 REPOS.yaml status:active 清单（ADR-0085 退役仓不在列）；
+# 新仓入图后须同步此处，否则 spec 提及该仓而未声明 blastRadius 会漏报
+KNOWN_REPOS = [".github", "CI-Workflows", "template-service", "archive", "arbiter",
+               "holdout", "cnb-bridge", "Shorts_Director", "Script_Writer",
+               "Use-up-Plan", "AI_Web_School", "mutual", "QW_Arena1",
+               "Viral_Radar", "Media-Monitor"]
 GOVERNANCE_PATTERNS = [
     (r"新增\s*App\s*身份", "新增 App 身份（与 nonGoals/AG-1 冲突）"),
     (r"new\s+GitHub\s+App\s+identity", "new GitHub App identity（与 AG-1 冲突）"),

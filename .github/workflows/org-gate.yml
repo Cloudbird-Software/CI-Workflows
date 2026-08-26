@@ -61,7 +61,7 @@ jobs:
             GOT=$((GOT+N))
             # fail-closed（实测教训：正则单反斜杠致 jq 编译错误被吞→静默按非 C1 跳过）：
             # 编译/求值错误（exit 5 等）显式判红，只有明确求值结果才进分支。
-            # bash -e 语义（agent-registry PR#65 实测）：jq -e 对 false 结论退出 1——
+            # bash -e 语义（agent-registry PR#65 实测——仓已归档 ADR-0085，教训仍适用）：jq -e 对 false 结论退出 1——
             # 裸赋值后取 $? 会在 -e 下直接灭脚本（非 C1 PR 静默死），必须 || RC=$? 捕获
             RC=0
             VERDICT=$(jq -e '[.[] | .filename, (.previous_filename // empty)]

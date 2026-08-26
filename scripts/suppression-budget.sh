@@ -30,7 +30,7 @@ usage() {
   --policy     CI-Workflows policy/suppressions.yaml
   --pr-title   PR 标题（逃生门 ADR 引用提取，可省）
   --pr-body    PR 正文文件（同上，可省）
-  --adr-dir    agent-registry decisions 本地检出目录（ADR 存在性 + scope 判定，可省）
+  --adr-dir    archive/adr 本地检出目录（ADR 存在性 + scope 判定，可省）
 USAGE
   exit 2
 }

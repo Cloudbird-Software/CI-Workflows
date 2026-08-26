@@ -16,7 +16,7 @@
 #   BASE_SHA/HEAD_SHA  git 模式：已全量 checkout 的仓内执行 base...head 三点 diff
 #   DIFF_FILE          fixture 模式：直接喂构造的 `git diff` 输出文件（T8 单元级自检）
 #   PR_TITLE/PR_BODY   逃生门 ADR 引用来源
-#   GH_TOKEN / ADR_REGISTRY_API  豁免时拉 agent-registry/decisions 存在性清单
+#   GH_TOKEN / ADR_REGISTRY_API  豁免时拉 archive/adr 存在性清单（ADR-0085 家园单仓化）
 #   ADR_LISTING_FILE   本地清单文件（fixture 模式替代 GH_TOKEN）
 #   TI_*               policy 覆盖（governance/policy/testing.yaml#test_integrity
 #                      声明的模式/阈值；此处为同值内置缺省——policy 拉取失败时调用方
@@ -274,7 +274,7 @@ if [ -n "${ADR_LISTING_FILE:-}" ]; then
   listing=$(cat "$ADR_LISTING_FILE")
 else
   [ -n "${GH_TOKEN:-}" ] || fail_closed "豁免需要 GH_TOKEN 拉 ADR 清单"
-  : "${ADR_REGISTRY_API:=repos/Cloudbird-Software/agent-registry/contents/decisions}"
+  : "${ADR_REGISTRY_API:=repos/Cloudbird-Software/archive/contents/adr}"
   listing=$(gh api "$ADR_REGISTRY_API" --paginate --jq '.[].name' 2>/dev/null) \
     || fail_closed "ADR 清单拉取失败（$ADR_REGISTRY_API）——豁免判定无法保证"
   [ -n "$listing" ] || fail_closed "ADR 清单为空（$ADR_REGISTRY_API）"
@@ -286,7 +286,7 @@ for ref in $refs; do
   printf '%s\n' "$listing" | grep -q "^ADR-${num}-" || missing="$missing $ref"
 done
 if [ -n "$missing" ]; then
-  echo "::error::引用的${missing} 在 agent-registry/decisions 无对应文件（幽灵 ADR）——豁免拒绝"
+  echo "::error::引用的${missing} 在 archive/adr 无对应文件（幽灵 ADR）——豁免拒绝"
   write_summary "红——$hits（幽灵 ADR:${missing}）"
   exit 1
 fi
