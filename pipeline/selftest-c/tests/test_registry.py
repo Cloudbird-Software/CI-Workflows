@@ -1,6 +1,5 @@
 """registry.py 测试：校验（畸形形状/非法枚举/篡改历史代检出）、register 幂等、retire 约束。"""
 import contextlib
-import copy
 import io
 import os
 import subprocess

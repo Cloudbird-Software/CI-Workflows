@@ -43,7 +43,6 @@ import time
 import urllib.error
 import urllib.request
 from pathlib import Path
-from typing import Any
 
 CNB_API_BASE = os.environ.get("CNB_API_BASE", "https://api.cnb.cool")
 DEFAULT_CANARY_SECONDS = 45  # 规范：30–60s echo 任务
