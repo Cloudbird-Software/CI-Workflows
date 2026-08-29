@@ -307,6 +307,7 @@ def cmd_emit(a):
         artifacts.append({"name": "response", "sha256": sha256_file(a.resp_file), "bytes": os.path.getsize(a.resp_file)})
     record = {
         "schema": RECORD_SCHEMA_ID, "invoke_id": a.invoke_id, "role": a.role, "model": a.model,
+        "tenant": a.tenant,
         "ts_start": ts, "ts_end": ts_end,
         "prompt_version": sha256_bytes((prompt_text + "\n" + system_text).encode("utf-8")),
         "prompt_bytes": len(prompt_text.encode("utf-8")), "seed": a.seed,
@@ -328,6 +329,18 @@ def cmd_emit(a):
             + f"\n  旁证已写 {side}")
     with open(shard_path, "a", encoding="utf-8", newline="\n") as f:
         f.write(canonical(record) + "\n")
+    # ---- 影子双写（BEH-03 / IR-0006 W1-B2）：同一次 invoke 追加 schema v1 影子记录 ----
+    # 影子事件先构造后追加（append 内先校验后落盘）；影子失败=fail-closed（BEH-01：
+    # 双写过渡期不一致必须当场可见，不得静默降级为单写）
+    import shadow_evidence
+    shadow_ev = {
+        "ts": ts_end, "kind": "cost", "action": "llm-invoke", "verdict": exit_status,
+        "subject": {"card": a.card, "tenant": a.tenant},
+        "actor": {"identity": "ciw-metering-wrapper", "role": "bot", "model": a.model},
+        "cost": {"tokens": tt, "wall_sec": round(a.latency_ms / 1000, 3)},
+        "inputs_digest": record["prompt_version"],
+    }
+    shadow_evidence.append(a.ledger, shadow_ev)
     if a.content_out is not None:
         with open(a.content_out, "w", encoding="utf-8", newline="\n") as f:
             f.write(content)
@@ -383,7 +396,7 @@ def cmd_aggregate(a):
         for e in errs[:10]:
             print(f"CHAIN {e}", file=sys.stderr)
         die(3, f"账本验链失败（拒绝归账）：{len(errs)} 处")
-    roles, totals, n = {}, {"invokes": 0, "prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}, 0
+    roles, tenants, totals, n = {}, {}, {"invokes": 0, "prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}, 0
     for fn in files:
         for rec in ledger[fn]:
             ts = rec.get("ts_start", "")
@@ -400,11 +413,19 @@ def cmd_aggregate(a):
             b["prompt_tokens"] += rec["usage"]["prompt_tokens"]
             b["completion_tokens"] += rec["usage"]["completion_tokens"]
             b["total_tokens"] += rec["usage"]["total_tokens"]
+            # 租户归账（AC-4c，IR-0006 W1-B2）：共用 API 额度分家计量——
+            # 旧记录（无 tenant）归 unknown-tenant 桶，不与任一租户混算
+            tenant = rec.get("tenant") or "unknown-tenant"
+            t = tenants.setdefault(tenant, {"invokes": 0, "prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0})
+            t["invokes"] += 1
+            t["prompt_tokens"] += rec["usage"]["prompt_tokens"]
+            t["completion_tokens"] += rec["usage"]["completion_tokens"]
+            t["total_tokens"] += rec["usage"]["total_tokens"]
     for role, b in roles.items():
         for k in totals:
             totals[k] += b[k]
     print(json.dumps({"since": a.since, "until": a.until, "files": files, "records": n,
-                      "roles": roles, "totals": totals}, ensure_ascii=False, sort_keys=True))
+                      "roles": roles, "tenants": tenants, "totals": totals}, ensure_ascii=False, sort_keys=True))
 
 
 def cmd_relink(a):
@@ -469,6 +490,10 @@ def main():
     p.add_argument("--latency-ms", type=int, required=True)
     p.add_argument("--http-status", type=int)
     p.add_argument("--exit-status", required=True)
+    p.add_argument("--card", default=os.environ.get("EVIDENCE_CARD", "Cloudbird-Software/CI-Workflows#0"),
+                   help="卡绑定 owner/repo#issue（join key，AC-4）；无卡上下文用 <repo>#0 哨兵")
+    p.add_argument("--tenant", default=os.environ.get("METERING_TENANT", "cloudbird-internal"),
+                   help="计量租户（AC-4c：共用 API 额度分家计量）")
     p.add_argument("--stream", action="store_true")
     p.add_argument("--resp-file")
     p.add_argument("--request-file", required=True)
