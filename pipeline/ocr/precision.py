@@ -64,8 +64,14 @@ def diff_touched_lines(diff_text: str) -> dict[str, set[int]]:
             continue
         if line.startswith("@@"):
             m = HUNK_RE.match(line)
-            if not m or path is None:
+            if not m:
                 raise ValueError(f"不可解析的 hunk 头: {line!r}")
+            if path is None:
+                # 删除文件（+++ /dev/null）后的 hunk 头：b 侧不存在——跳过
+                # （此前误与"不可解析"合并 raise：纯删除 diff 必炸，PR #131
+                # 实测；postprocess.py 同款修复）
+                in_hunk = False
+                continue
             old_no, new_no = int(m.group(1)), int(m.group(3))
             in_hunk = True
             continue

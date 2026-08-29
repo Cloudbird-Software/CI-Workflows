@@ -49,6 +49,21 @@ class TestDiffParse(unittest.TestCase):
         with self.assertRaises(ValueError):
             postprocess.parse_unified_diff("+++ b/x.py\n@@ garbage @@\n+line\n")
 
+    def test_pure_deletion_diff_skips_dev_null_hunks(self):
+        """纯删除 diff（+++ /dev/null 后跟 hunk 头）不炸——PR #131 实测回归。
+
+        docstring 声称"删除文件跳过"，但旧实现把 path=None 与不可解析合并
+        raise：删除文件的 hunk 头必炸。修复后应跳过且无新增行锚点。
+        """
+        added = postprocess.parse_unified_diff(
+            "diff --git a/gone.py b/gone.py\n--- a/gone.py\n+++ /dev/null\n"
+            "@@ -1,9 +0,0 @@\n-line1\n-line2\n"
+            "diff --git a/keep.py b/keep.py\n--- a/keep.py\n+++ b/keep.py\n"
+            "@@ -1,1 +1,2 @@\n ctx\n+new\n"
+        )
+        self.assertNotIn("gone.py", added)
+        self.assertEqual(added["keep.py"], {2})
+
 
 class TestPostprocess(unittest.TestCase):
     @classmethod
