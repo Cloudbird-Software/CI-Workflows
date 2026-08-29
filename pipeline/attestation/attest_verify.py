@@ -11,7 +11,10 @@
 
 用法：
   attest_verify.py --bundle <dir> --artifact <file> --pubkey <pem> \
-      [--expect-commit <sha>] [--expect-card <owner/repo#n>]
+      [--expect-commit <sha>] [--expect-card <owner/repo#n>] [--content-only]
+  --content-only：跳过产物字节级 digest 复算，只做内容级 SBOM 重算+验签+锚点
+  （回溯场景：产物由 git archive 重建，tar/gzip 字节受工具版本影响——文件
+  内容 digest 才是稳定锚；字节级检查仍在位供首发验证用）。
 退出码：0=验签绿 | 1=验证失败（digest 不符/签名坏/锚点缺失）| 2=基础设施错误
 """
 import base64
@@ -72,11 +75,12 @@ def main() -> int:
     if not os.path.isfile(artifact):
         return fail(2, f"产物不存在: {artifact}")
 
-    # 1. 产物 digest
+    # 1. 产物 digest（--content-only 跳过：回溯重建场景见 docstring）
     digest = sha256_file(artifact)
     if att.get("_type") != BUNDLE_TYPE:
         return fail(1, f"_type 非 {BUNDLE_TYPE}")
-    if att.get("subject", {}).get("digest", {}).get("sha256") != digest:
+    if "--content-only" not in sys.argv and \
+            att.get("subject", {}).get("digest", {}).get("sha256") != digest:
         return fail(1, f"产物 digest 不符（attestation={att.get('subject', {}).get('digest', {}).get('sha256', '?')[:12]} 实算={digest[:12]}）")
 
     # 2. SBOM 重算（逐文件）+ canonical digest 对 materials

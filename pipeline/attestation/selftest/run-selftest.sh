@@ -79,5 +79,15 @@ run_verify --bundle "$TMP/bundle" --artifact "$TMP/artifact.tar.gz" --pubkey "$T
   --expect-commit "0000000000000000000000000000000000000000" >/dev/null 2>&1
 [[ $? -eq 1 ]] && ok "T6b commit 锚不符 → 红（回溯链执法）" || bad "T6b commit 锚漏检"
 
+# T7 回溯内容级验证（--content-only）：重打包 tar（字节变、内容同）→ 绿；
+# 内容变一字节 → 红（内容锚不放过）
+tar -cf "$TMP/artifact-repack.tar" -C "$TMP" src && gzip -n -9 -c "$TMP/artifact-repack.tar" > "$TMP/artifact-repack.tar.gz"
+run_verify --bundle "$TMP/bundle" --artifact "$TMP/artifact-repack.tar.gz" --pubkey "$TMP/pub.pem" --content-only >/dev/null 2>&1 \
+  && ok "T7 重打包（字节变内容同）+ --content-only → 绿（内容级锚）" || bad "T7 重打包误红"
+mkdir -p "$TMP/src2" && cp -r "$TMP/src/." "$TMP/src2/" && echo "tampered" >> "$TMP/src2/gov/engine.sh"
+tar -czf "$TMP/artifact2.tar.gz" -C "$TMP" src2
+run_verify --bundle "$TMP/bundle" --artifact "$TMP/artifact2.tar.gz" --pubkey "$TMP/pub.pem" --content-only >/dev/null 2>&1
+[[ $? -ne 0 ]] && ok "T7b 内容篡改 → 红（--content-only 不放过内容漂移）" || bad "T7b 内容篡改漏检"
+
 echo "attestation-selftest: PASS=$PASS FAIL=$FAIL"
 [[ $FAIL -eq 0 ]] || exit 1
