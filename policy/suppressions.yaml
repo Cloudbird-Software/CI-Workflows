@@ -69,6 +69,7 @@ baselines:
   QW_Arena1: 7   # 盘点 2026-08-25：7 处全部来自 Plan.md 专家计划原文的代码样例（noqa/pragma/type-ignore 散文标记）——散文计入是保守方向不豁免（ADR-0085 前的 agent-registry 先例，仓已归档）
   Media-Monitor: 0   # 盘点 2026-08-26：新仓接入入册（ADR-0036"新仓接入须先盘点总量入册"）——main 树零标记（与运行时同规则 grep -E 计数）
   Viral_Radar: 0   # 盘点 2026-08-25：template-service 基线新建（Initial commit 干净树）+ specs 纯文本 PR，零抑制标记；新仓接入入册（ADR-0091 建仓申报）
+  env-defs: 0   # 盘点 2026-08-29：template-service 派生新仓（IR-0006 W1-C2 建仓，ADR-0103 决策 5）——main 树=模板骨架+environments/*.yaml 期望态声明，零抑制标记；新仓接入入册（ADR-0036"新仓接入须先盘点总量入册"）
 
 # ----------------------------------------------------------------------------
 # 计数排除（仓库作用域）：仅声明仓自己可排除——模式声明与自测 fixture 是数据
