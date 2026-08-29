@@ -160,9 +160,11 @@ assert d["roles"]["probe"] == {"invokes": 1, "prompt_tokens": 120, "completion_t
 assert d["roles"]["spec-author"]["total_tokens"] == 42, d["roles"]
 assert d["totals"]["total_tokens"] == 207 and d["totals"]["invokes"] == 2, d["totals"]
 assert d["records"] == 2
+assert d["tenants"]["cloudbird-internal"]["total_tokens"] == 207, d["tenants"]
 print("T5 OK")
 PYEOF
 [[ $? -eq 0 ]] && pass "T5 角色档归账正确（probe=165 / spec-author=42 / 合计=207）" || fail "T5 归账数值断言"
+echo "$AGG" | grep -q '"tenants"' && pass "T5 租户归账在场（AC-4c：tenant 分桶）" || fail "T5 归账缺 tenants 桶"
 FUTURE=$("$PY" -c "import datetime;print((datetime.date.today()+datetime.timedelta(days=2)).isoformat())")
 AGG2=$("$PY" "$DIR/metering.py" aggregate --dir "$METER" --since "$FUTURE" --json)
 "$PY" - "$AGG2" <<'PYEOF'
@@ -197,11 +199,61 @@ OUT7=$(PATH="$BIN:$PATH" GH_TOKEN=selftest-dummy METERING_PYTHON="$PY" \
 RC7=$?
 # 断言干跑全程（建分支/创世续接/合并片验链）通过且只报不写（写操作经 mutate 桩为 DRY，
 # 其输出重定向到 /dev/null——以"链验通过+同步完成"与退出码判定路径完整性）
-if [[ $RC7 -eq 0 ]] && echo "$OUT7" | grep -q "同步完成：1 片更新" && echo "$OUT7" | grep -q "链验通过"; then
-  pass "T7 ledger-sync 干跑：建分支/创世续接/合并片验链/写回预演通过"
+if [[ $RC7 -eq 0 ]] && echo "$OUT7" | grep -q "同步完成：2 片更新" && echo "$OUT7" | grep -q "链验通过"; then
+  pass "T7 ledger-sync 干跑：建分支/创世续接/合并片验链/写回预演通过（records+影子双片）"
 else
   fail "T7 ledger-sync 干跑 rc=$RC7（输出：${OUT7:0:400}）"
 fi
+
+# ---- T8 影子双写（IR-0006 W1-B2 / BEH-03：AC-4a/4b/4c） ----
+SHADOW=$(ls "$METER"/shadow-evidence-*.jsonl 2>/dev/null | head -1)
+if [[ -n "$SHADOW" ]] && [[ "$(wc -l <"$SHADOW" | tr -d ' ')" == "2" ]]; then
+  pass "T8 双写落盘：2 次 invoke → 2 条 schema v1 影子记录（与主账本 1:1）"
+else
+  fail "T8 影子片缺失或条数≠2（$SHADOW）"
+fi
+run_rc "T8 影子验链绿" 0 "$PY" "$DIR/shadow_evidence.py" verify --file "$SHADOW"
+"$PY" - "$SHADOW" <<'PYEOF'
+import json, sys
+rec = json.loads(open(sys.argv[1], encoding="utf-8").readline())
+assert rec["kind"] == "cost" and rec["action"] == "llm-invoke", rec
+assert rec["subject"]["tenant"] == "cloudbird-internal", rec
+assert rec["subject"]["card"] == "Cloudbird-Software/CI-Workflows#0", rec
+assert rec["actor"]["model"] == "glm-4.5-air" and rec["actor"]["role"] == "bot", rec
+assert rec["cost"]["tokens"] > 0 and "wall_sec" in rec["cost"], rec
+assert set(rec) >= {"seq", "prev_hash", "hash"}, rec
+print("OK")
+PYEOF
+[[ $? -eq 0 ]] && pass "T8 影子字段对齐 schema v1（cost/tenant/card/actor/cost 四元/链字段）" || fail "T8 影子字段断言"
+# 负控制 1：tenant 缺失拒写（AC-4c）
+cat >"$TMP/bad-ev.json" <<'BADEV'
+{"ts": "2026-01-01T00:00:00Z", "kind": "cost", "action": "llm-invoke", "verdict": "ok",
+ "subject": {"card": "Cloudbird-Software/CI-Workflows#0"},
+ "actor": {"identity": "ciw-metering-wrapper", "role": "bot", "model": "glm-4.5-air"}}
+BADEV
+run_rc "T8 影子 tenant 缺失 → 拒写（exit 3）" 3 "$PY" "$DIR/shadow_evidence.py" append --dir "$METER" --event-file "$TMP/bad-ev.json"
+# 负控制 2：影子片篡改 → 验链红（AC-4b 等价执法：只增不改，改=红）
+TAMPER="$TMP/tamper.jsonl"; cp "$SHADOW" "$TAMPER"
+"$PY" - "$TAMPER" <<'PYEOF'
+import json, sys
+lines = open(sys.argv[1], encoding="utf-8").read().splitlines()
+rec = json.loads(lines[0]); rec["verdict"] = "tampered"
+lines[0] = json.dumps(rec, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+open(sys.argv[1], "w", encoding="utf-8", newline="\n").write("\n".join(lines) + "\n")
+PYEOF
+run_rc "T8 影子片篡改 → 验链红（exit 3）" 3 "$PY" "$DIR/shadow_evidence.py" verify --file "$TAMPER"
+# 负控制 3：payload 超限拒写（INV-06 4KB 纪律跨源一致）
+"$PY" - "$TMP/big-ev.json" <<'PYEOF'
+import json, sys
+ev = {"ts": "2026-01-01T00:00:00Z", "kind": "cost", "action": "llm-invoke", "verdict": "ok",
+      "subject": {"card": "Cloudbird-Software/CI-Workflows#0", "tenant": "cloudbird-internal"},
+      "actor": {"identity": "x", "role": "bot", "model": "m"}, "payload": "x" * 4097}
+open(sys.argv[1], "w", encoding="utf-8").write(json.dumps(ev))
+PYEOF
+run_rc "T8 影子 payload 4097B → 拒写（INV-06）" 3 "$PY" "$DIR/shadow_evidence.py" append --dir "$METER" --event-file "$TMP/big-ev.json"
+# 主账本只增不改（AC-4b）：既有行字节不变（T1c 已验重复拒写，此处复验行数）
+[[ "$(wc -l <"$LEDGER" | tr -d ' ')" == "2" ]] && pass "T8 主账本 records 片仍 2 行（原 JSONL 只增不改）" \
+  || fail "T8 主账本被改动（${LEDGER}）"
 
 echo "----------------------------------------"
 if [[ $FAILS -eq 0 ]]; then echo "SELFTEST PASS：全部断言绿（零真实 LLM 调用）"; exit 0; fi

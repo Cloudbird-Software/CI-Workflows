@@ -5,6 +5,8 @@
 # 周片经 relink 续接到远端基链（本地与远端各自验链通过才合并——远端链已坏时
 # 绝不覆盖，防 push 掩盖篡改），合并片再整链验证后经 contents API 写回。
 # 周片文件名 records-<ISO 周>.jsonl 与 wrapper 落盘约定一致，远端按周追加。
+# IR-0006 W1-B2（BEH-03 双写）：影子片 shadow-evidence-<ISO 周>.jsonl
+# （证据 schema v1）随同通道同步（shadow_evidence.py relink/verify 同款执法）。
 #
 # 用法:
 #   bash pipeline/metering/ledger-sync.sh [--dir <GATE_METERING_DIR>] \
@@ -86,6 +88,36 @@ for LOCAL in "$LEDGER_DIR"/records-*.jsonl; do
   MERGED_N=$(wc -l <"$TMPD/merged-$NAME" | tr -d ' ')
   ARGS=(-X PUT "repos/$REPO/contents/$NAME" -f "branch=$BRANCH"
         -f "message=chore(metering): $NAME 追加至 $MERGED_N 条（W2-C3 ADR-0062，链验通过）"
+        -f "content=$B64")
+  [[ -n "$BASE_BLOB_SHA" ]] && ARGS+=(-f "sha=$BASE_BLOB_SHA")
+  if mutate "$GH" api "${ARGS[@]}" >/dev/null; then
+    PUSHED=$((PUSHED+1)); echo "OK $NAME → $BRANCH（$MERGED_N 条，链验通过）"
+  else
+    echo "FATAL: $NAME 写回失败（并发冲突？重跑本脚本即可续接）" >&2; exit 4
+  fi
+done
+
+# ---- 6. 影子片同步（BEH-03 双写：shadow_evidence.py relink/verify 同款执法） ----
+for LOCAL in "$LEDGER_DIR"/shadow-evidence-*.jsonl; do
+  [[ -e "$LOCAL" ]] || continue
+  NAME=$(basename "$LOCAL")
+  BASE="$TMPD/base-$NAME"; BASE_BLOB_SHA=""
+  if "$GH" api "repos/$REPO/contents/$NAME?ref=$BRANCH" >"$TMPD/remote.json" 2>/dev/null; then
+    BASE_BLOB_SHA=$("$PY" -c 'import json,sys;print(json.load(open(sys.argv[1],encoding="utf-8"))["sha"])' "$TMPD/remote.json")
+    "$PY" -c 'import base64,json,sys;d=json.load(open(sys.argv[1],encoding="utf-8"));open(sys.argv[2],"w",encoding="utf-8",newline="\n").write(base64.b64decode(d["content"]).decode("utf-8"))' "$TMPD/remote.json" "$BASE"
+    REMOTE_N=$(wc -l <"$BASE" | tr -d ' ')
+    LOCAL_M=$(wc -l <"$LOCAL" | tr -d ' ')
+    if [[ "$REMOTE_N" -ge "$LOCAL_M" ]]; then
+      echo "OK $NAME：远端 $REMOTE_N 条 ≥ 本地 $LOCAL_M 条——本片无需同步（幂等跳过）"
+      continue
+    fi
+  fi
+  "$PY" "$DIR/shadow_evidence.py" relink --base "$BASE" --local "$LOCAL" --out "$TMPD/merged-$NAME" >/dev/null
+  "$PY" "$DIR/shadow_evidence.py" verify --file "$TMPD/merged-$NAME" >/dev/null
+  B64="$("$PY" -c 'import base64,sys;print(base64.b64encode(open(sys.argv[1],"rb").read()).decode())' "$TMPD/merged-$NAME")"
+  MERGED_N=$(wc -l <"$TMPD/merged-$NAME" | tr -d ' ')
+  ARGS=(-X PUT "repos/$REPO/contents/$NAME" -f "branch=$BRANCH"
+        -f "message=chore(metering): $NAME 追加至 $MERGED_N 条（IR-0006 W1-B2 影子双写，链验通过）"
         -f "content=$B64")
   [[ -n "$BASE_BLOB_SHA" ]] && ARGS+=(-f "sha=$BASE_BLOB_SHA")
   if mutate "$GH" api "${ARGS[@]}" >/dev/null; then
