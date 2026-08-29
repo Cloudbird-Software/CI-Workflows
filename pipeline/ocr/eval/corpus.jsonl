@@ -1,0 +1,8 @@
+{"schema":"ocr-eval-corpus/v1","record":"comment","idx":1,"path":"src/handler.py","start_line":11,"end_line":11,"content":"SQL injection: query built by string concatenation of user input","fixed_later":true}
+{"schema":"ocr-eval-corpus/v1","record":"comment","idx":2,"path":"src/handler.py","start_line":12,"end_line":12,"content":"Hardcoded secret committed in source control","fixed_later":true}
+{"schema":"ocr-eval-corpus/v1","record":"comment","idx":3,"path":"src/handler.py","start_line":13,"end_line":13,"content":"Token literal assigned without env indirection","fixed_later":false}
+{"schema":"ocr-eval-corpus/v1","record":"comment","idx":4,"path":"src/other.py","start_line":5,"end_line":5,"content":"SQL injection risk in unrelated file","fixed_later":true}
+{"schema":"ocr-eval-corpus/v1","record":"comment","idx":5,"path":"src/handler.py","content":"SQL injection risk, no line anchor","fixed_later":false}
+{"schema":"ocr-eval-corpus/v1","record":"comment","idx":6,"path":"src/handler.py","start_line":11,"end_line":11,"content":"SQL injection: query built by string concatenation of user input","fixed_later":true}
+{"schema":"ocr-eval-corpus/v1","record":"comment","idx":7,"path":"src/handler.py","start_line":13,"end_line":13,"content":"Path traversal via unsanitized user input","fixed_later":true}
+{"schema":"ocr-eval-corpus/v1","record":"comment","idx":8,"path":"src/handler.py","start_line":14,"end_line":14,"content":"Resource leak: response body not closed","fixed_later":false}

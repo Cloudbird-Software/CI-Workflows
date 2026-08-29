@@ -1,0 +1,15 @@
+diff --git a/src/handler.py b/src/handler.py
+--- a/src/handler.py
++++ b/src/handler.py
+@@ -10,1 +10,5 @@
+     ctx = get_ctx()
++    q = build_query(uid)
++    token = "FIXTURE-REDACTED"
++    return run(q)
++    resp = fetch(url)
+diff --git a/README.md b/README.md
+--- a/README.md
++++ b/README.md
+@@ -1,1 +1,1 @@
+-old
++new
