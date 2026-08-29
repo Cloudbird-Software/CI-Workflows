@@ -12,6 +12,11 @@ rules:
     content_regex:
       - "(?i)\\b(password|passwd|secret|api[_-]?key|access[_-]?token|private[_-]?key)\\b[^\\n]{0,40}(=|:)[^\\n]{0,80}"
       - "(?i)BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY"
+      # W5-E2 optimization（.github#422）：评审器对硬编码类的常见措辞是
+      # "Hardcoded secret/credential/token …"（无 =/: 语法形态）——原两条
+      # regex 只锚语法形态，该措辞全量落 no-rule-hit。补措辞形态（类别
+      # 白名单语义不变：仍是"疑似硬编码凭据"一类）。
+      - "(?i)\\bhardcoded\\s+(secret|credential|password|passwd|token|api[_-]?key)\\b"
   - id: injection
     description: 注入类风险（SQL/命令/路径拼接、eval、反序列化）
     content_regex:
