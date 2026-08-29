@@ -57,8 +57,14 @@ def parse_unified_diff(text: str) -> dict[str, set[int]]:
             continue
         if line.startswith("@@"):
             m = HUNK_RE.match(line)
-            if not m or path is None:
+            if not m:
                 raise ValueError(f"不可解析的 hunk 头: {line!r}")
+            if path is None:
+                # 删除文件（+++ /dev/null）后的 hunk 头：b 侧不存在——跳过
+                # 本 hunk（此前误与"不可解析"合并 raise：纯删除 diff 必炸，
+                # PR #131 实测——docstring 声称跳过删除文件，实现兑现）
+                in_hunk = False
+                continue
             new_no = int(m.group(2))
             in_hunk = True
             continue
