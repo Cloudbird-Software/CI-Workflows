@@ -192,6 +192,22 @@ jobs:
           python3 -m pip install --disable-pip-version-check --quiet pytest==8.4.2
           python3 -m unittest discover -s pipeline/holdout-unseal/tests -v
 
+  attestation-selftest:
+    # 签名证据包 v0 自测（IR-0006 W4-R3 / .github#420 / SC-4 / AC-8e/8f）：
+    # 产物 digest 复算 + SBOM 逐文件重算 + RS256 验签 + commit/card 回溯锚——
+    # 正向全链绿；负向五类篡改（产物/SBOM/attestation/错公钥/缺件）逐项必红。
+    # 零网络零真实仓：openssl 一次性密钥对 + fixture tar.gz。
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: attestation 自测 T1-T6
+        run: bash pipeline/attestation/selftest/run-selftest.sh
+
   trust-gate-selftest:
     # 信任门自测（W5-C2 .github#225 / ADR-0071，宪法 §5——替代 spec v3 risk-score）：
     # 硬谓词白名单判定（每域每证据谓词键逐个缺失断言——缺证据=拒绝不是中性）、
@@ -212,7 +228,7 @@ jobs:
 
   gate:
     if: always()
-    needs: [hygiene, test-integrity-selftest, metering-selftest, adversary-selftest, entropy-selftest, bugflow-selftest, holdout-unseal-selftest, trust-gate-selftest]
+    needs: [hygiene, test-integrity-selftest, metering-selftest, adversary-selftest, entropy-selftest, bugflow-selftest, holdout-unseal-selftest, attestation-selftest, trust-gate-selftest]
     runs-on: ubuntu-latest
     timeout-minutes: 5    # testing.yaml "gate<5min" 原则的硬上限
     permissions:
