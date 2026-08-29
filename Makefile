@@ -26,6 +26,8 @@ gates-pr: ## 本地等价关卡清单（ci.yml 语义）：make gates-pr
 	@bash scripts/test-integrity-fixtures/run.sh >/dev/null \
 	  && echo "OK   test-integrity 自测（T8 fixtures，与 ci.yml 同款）"
 	@bash scripts/suppression-budget-selftest.sh >/dev/null \
-	  && echo "OK   suppression-budget 自测（与 ci.yml 同款）"
+          && echo "OK   suppression-budget 自测（与 ci.yml 同款）"
+	@bash pipeline/attestation/selftest/run-selftest.sh >/dev/null \
+	  && echo "OK   attestation 自测（W4-R3 签名证据包，与 ci.yml 同款）"
 	@echo "== 开 PR 前检查单（机器不可判部分）：PR body 引用 ADR-NNNN（C1）/ body 带 Card: 元数据行 / diff<400 行 =="
 	@echo "== 注：metering/adversary/bugflow/entropy 等 pipeline selftest 本地未跑（依赖 CI 环境），以 ci.yml 各 job 为准 =="
