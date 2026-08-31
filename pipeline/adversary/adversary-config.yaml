@@ -8,7 +8,7 @@ version: 1
 #   - 与 pipeline/models.yaml judge-deep 角色档交叉断言（model/temperature/max_tokens）
 adversary:
   alias: judge-deep                     # 第三族档（AR-8，原 registry/models.yaml 已随 ADR-0085 退役）——档名本身是锁
-  model: deepseek-v4-flash               # 商汤日日新（2026-08-25，sensenova-6.8 推理消耗切直出）
+  model: step-3.7-flash                  # 阶跃星辰 Step Plan（2026-08-31，ADR-0104：sensenova 通道 429 退役）
   family: sovereign-family              # ≠ builder(flash-family) ≠ test-author(flagship-family)
   prompt_file: prompt-v2.md
   prompt_sha256: "sha256:3cb56e83aeed2307d05b31e9c944408b2571e7e727484739c665e1165adafbb0"
@@ -19,7 +19,7 @@ adversary:
     temperature: 0.2                    # registry judge-deep limits.temperature_max = 0.2
     top_p: 0.9
     seed: 67                            # 钉死采样种子——复现性（考试档案）
-    thinking: disabled                  # deepseek-v4-flash 直出，非推理模式
+    thinking: disabled                  # 锁定值归档；StepFun 常开推理（mkreq 翻译 reasoning_effort=low，ADR-0104）
   max_attempts: 8                       # 单次运行尝试上限（成本护栏，judge-deep 计入 BUDGET-01）
 cross_family:                           # AR-8 断言基准（三族分离：sovereign/flash/flagship）
   builder: {alias: coder-fast, family: flash-family}
