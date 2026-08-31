@@ -23,7 +23,7 @@ roles:
     # alias——family=sovereign-family，≠ builder(coder-fast=flash-family)
     # ≠ test-author(reviewer=flagship-family)，AR-8 跨族分离。锁定参数与
     # pipeline/adversary/adversary-config.yaml 交叉断言（漂移即 adversary exit 2）
-    model: deepseek-v4-flash  # 商汤日日新（2026-08-25，sensenova-6.8 推理消耗切直出）
+    model: step-3.7-flash  # 阶跃星辰 Step Plan（2026-08-31，ADR-0104：sensenova 通道 429 退役）
     max_tokens: 16384
     temperature: 0.2
     thinking: disabled

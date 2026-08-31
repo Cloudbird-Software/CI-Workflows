@@ -59,7 +59,8 @@ jobs:
       ADV_SPEC_PATH: ${{ github.event.client_payload.spec_path }}
       ADV_CARD_ID: ${{ github.event.client_payload.card_id }}
       ADV_AUDIT_RUN_ID: ${{ github.event.client_payload.audit_run_id }}
-      # LLM 供应商 = kimi k2.7（org vars LLM_ENDPOINT1/MODEL1；secret LLM_API_KEY1）。
+      # LLM 供应商 = 阶跃星辰 Step Plan step-3.7-flash（org vars LLM_ENDPOINT1/MODEL1；
+      # secret LLM_API_KEY1。ADR-0104）。
       # 注意 wrapper 消费的是 LLM_BASE_URL（metering-wrapper.sh env 契约）。
       LLM_BASE_URL: ${{ vars.LLM_ENDPOINT1 }}
       LLM_MODEL: ${{ inputs.model || vars.MODEL1 }}
@@ -163,9 +164,9 @@ jobs:
           # 留痕不阻断），block 修复后回切（issue #301 后续跟进）。风险面可控：
           # 一次性 runner、无 repo 写权凭据、产物即焚（安全语义注释见文件头）。
           egress-policy: audit
-          # LLM endpoint 域名须与 vars.LLM_ENDPOINT1 同步维护
+          # LLM endpoint 域名须与 vars.LLM_ENDPOINT1 同步维护（ADR-0104：StepFun）
           allowed-endpoints: |
-            api.kimi.com:443
+            api.stepfun.com:443
             api.github.com:443
 
       - name: 攻击（judge-deep 锁定 + 计量 wrapper，ADR-0067/0062）

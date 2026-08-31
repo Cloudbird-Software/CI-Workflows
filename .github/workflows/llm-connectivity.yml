@@ -44,21 +44,24 @@ jobs:
             github.com:443
             api.github.com:443
             objects.githubusercontent.com:443
-            api.kimi.com:443
+            api.stepfun.com:443
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false   # 账本同步走显式 GH_TOKEN 的 contents API，不落 git 凭据
-      - name: 最小调用（max_tokens=16 + thinking disabled，经计量 wrapper 完整版——W2-C3/ADR-0062）
+      - name: 最小调用（max_tokens=128 + thinking disabled，经计量 wrapper 完整版——W2-C3/ADR-0062）
         env:
           # 2026-08-24：org secret LLM_API_KEY 已随供应商切换删除（只剩 KEY1=kimi）——
           # 本 workflow 曾因此连续红（secret 缺失）。endpoint/model 走 org vars。
+          # 2026-08-31：max_tokens 16→128——StepFun step-3.7-flash 常开推理
+          # （reasoning_effort 低档仍先产思维链），16 tokens 下 completion 全被
+          # 思维链吃空、content 恒空，计量 fail-closed 误报 infra 红。
           LLM_API_KEY: ${{ secrets.LLM_API_KEY1 }}
           LLM_BASE_URL: ${{ vars.LLM_ENDPOINT1 }}
           LLM_PROBE_MODEL: ${{ inputs.model || vars.MODEL1 }}
         run: |
-          printf 'connectivity probe' > /tmp/p.txt
+          printf 'Reply with exactly one word: OK' > /tmp/p.txt
           reply=$(bash pipeline/metering/metering-wrapper.sh --model "$LLM_PROBE_MODEL" \
-            --prompt-file /tmp/p.txt --max-tokens 16 --temperature 0 --thinking disabled \
+            --prompt-file /tmp/p.txt --max-tokens 128 --temperature 0 --thinking disabled \
             --role probe --tag connectivity --usage-compat-dir llm-usage)
           echo "reply(≤200B): ${reply:0:200}"
       - name: usage 记录入 run 摘要（BEH-09 留痕）

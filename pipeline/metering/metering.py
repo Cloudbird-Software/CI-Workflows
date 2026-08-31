@@ -264,6 +264,18 @@ def cmd_mkreq(a):
         if dropped:
             print(f"provider-compat: api.kimi.com 不支持 {','.join(dropped)}——已从请求体剔除"
                   f"（锁定值仍入计量记录）", file=sys.stderr)
+    if _host == "api.stepfun.com":
+        # StepFun step-3.7-flash 为常开推理模型（reasoning_effort low/medium/high，
+        # 无 disabled 档）；GLM 形 thinking 参数不被识别（2xx 下正文可能被思维链
+        # 吃空，计量 fail-closed 误报 infra 红）。翻译为最接近档并剔除未知参数：
+        # disabled→low（直出语义的最小推理）、enabled→medium（默认推荐档）。
+        if "thinking" in req:
+            _effort = "low" if req["thinking"]["type"] == "disabled" else "medium"
+            req["reasoning_effort"] = _effort
+            del req["thinking"]
+            print(f"provider-compat: api.stepfun.com 常开推理——thinking={a.thinking} 翻译为"
+                  f" reasoning_effort={_effort} 并剔除 GLM 形参数（锁定值仍入计量记录）",
+                  file=sys.stderr)
     if a.stream:
         req["stream"] = True
         req["stream_options"] = {"include_usage": True}  # 终块带 usage——聚合计量的数据保障
