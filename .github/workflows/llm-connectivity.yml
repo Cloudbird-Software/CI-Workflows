@@ -59,7 +59,7 @@ jobs:
           LLM_BASE_URL: ${{ vars.LLM_ENDPOINT1 }}
           LLM_PROBE_MODEL: ${{ inputs.model || vars.MODEL1 }}
         run: |
-          printf 'connectivity probe' > /tmp/p.txt
+          printf 'Reply with exactly one word: OK' > /tmp/p.txt
           reply=$(bash pipeline/metering/metering-wrapper.sh --model "$LLM_PROBE_MODEL" \
             --prompt-file /tmp/p.txt --max-tokens 128 --temperature 0 --thinking disabled \
             --role probe --tag connectivity --usage-compat-dir llm-usage)
