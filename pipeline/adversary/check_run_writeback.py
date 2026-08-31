@@ -88,6 +88,12 @@ def parse_args(argv=None) -> argparse.Namespace:
                    help="目标仓库 owner/name（spec PR 所在仓；缺省 GITHUB_REPOSITORY）")
     p.add_argument("--head-sha", default=None,
                    help="spec PR head commit SHA（check run 挂接点；给定则免 API 解析）")
+    p.add_argument("--pr-repo", default=None,
+                   help="spec PR 所在仓 owner/name（链路锚点行——beacon 模式写回目标为本仓、"
+                        "spec PR 在跨仓时与 --repo 不同，须显式给锚点仓）")
+    p.add_argument("--pr-head-sha", default=None,
+                   help="spec PR head SHA（链路锚点行——beacon 模式挂接点为本仓审计 commit，"
+                        "与 spec PR head 不同时须显式给锚点 SHA）")
     p.add_argument("--gh-token", default=None,
                    help="App 令牌（checks:write）；缺省取 APP_TOKEN → GH_TOKEN")
     p.add_argument("--name", default="adversary", help="check run 名称（默认 adversary）")
@@ -168,12 +174,18 @@ def _clip(s: str, limit: int) -> str:
     return s[: limit - len(mark)] + mark
 
 
-def build_check_body(data: dict, name: str = "adversary") -> dict:
+def build_check_body(data: dict, name: str = "adversary",
+                     pr_repo: Optional[str] = None,
+                     pr_number: Optional[int] = None,
+                     pr_head_sha: Optional[str] = None) -> dict:
     """纯函数：adversary-report/v1 → check run 请求体（不含 head_sha，由调用方注入）。
 
     - conclusion 映射 fail-closed（未知/缺失 verdict → failure）；
     - output.text 承载 attempts/parse_errors 全量留痕并截断 ≤65535；
-    - output.summary 承载 verdict 摘要并截断 ≤65535。
+    - output.summary 承载 verdict 摘要并截断 ≤65535；
+    - pr_repo/pr_number/pr_head_sha（可选）：spec PR 链路锚点行（key=value，
+      W4-C2 跨仓中继 beacon 的机械核证依据——信标写在本仓，中继方读回后按
+      这三行与目标 PR 比对，防串用无关审计 run）。
     """
     verdict = data.get("verdict", "missing")
     conclusion = verdict_to_conclusion(verdict)
@@ -191,6 +203,13 @@ def build_check_body(data: dict, name: str = "adversary") -> dict:
         f"target: `{target}`",
         f"attempts: {attempt_count}（exploited {len(exploited)} / holes {len(holes)}）",
     ]
+    if pr_repo:
+        summary_lines.append(f"pr_repo={pr_repo}")
+        if pr_number is not None:
+            summary_lines.append(f"pr_number={pr_number}")
+        if pr_head_sha:
+            summary_lines.append(f"pr_head_sha={pr_head_sha}")
+        summary_lines.append(f"audit_run_id={os.environ.get('GITHUB_RUN_ID', '')}")
     if exploited:
         summary_lines.append(f"exploited strategies: {', '.join(map(str, exploited))}")
     if holes:
@@ -269,8 +288,15 @@ def main(argv=None) -> int:
         if not head_sha:
             die(2, f"PR #{pr_number} 响应缺 head.sha")
 
-    # 3) 构造 + 写回
-    body = build_check_body(report, name=args.name)
+    # 3) 构造 + 写回（pr 链路锚点行随 body 进 summary——beacon 模式机械核证依据：
+    #    --pr-repo/--pr-head-sha 显式覆盖；普通写回模式锚点仓=写回目标仓、锚点
+    #    SHA=挂接 SHA，两参缺省即回退该语义）
+    link_repo = args.pr_repo or (repo if (pr_number or args.head_sha) else None)
+    link_sha = args.pr_head_sha or head_sha
+    body = build_check_body(report, name=args.name,
+                            pr_repo=link_repo,
+                            pr_number=pr_number,
+                            pr_head_sha=link_sha)
     result = create_check_run(repo, token, head_sha, body, args.dry_run)
     if result.get("dry_run"):
         print(json.dumps(result["payload"], ensure_ascii=False, indent=2))

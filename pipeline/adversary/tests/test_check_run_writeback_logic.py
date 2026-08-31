@@ -87,6 +87,28 @@ def main():
     else:
         bad(f"W2 check name 默认值 ≠ 'adversary'（{body['name']}")
 
+    # W4-C2 跨仓中继 beacon 链路锚点行（2026-08-31：App 令牌无 checks:write，
+    # verdict 信标落本仓、中继方按锚点行机械核证）
+    body = crw.build_check_body(survived, pr_repo="Cloudbird-Software/QW_Arena1",
+                                pr_number=35, pr_head_sha="7ad58b9e")
+    summ = body["output"]["summary"]
+    checks = [
+        ("pr_repo=Cloudbird-Software/QW_Arena1" in summ, "pr_repo 锚点行"),
+        ("pr_number=35" in summ, "pr_number 锚点行"),
+        ("pr_head_sha=7ad58b9e" in summ, "pr_head_sha 锚点行"),
+    ]
+    for cond, msg in checks:
+        if cond:
+            ok(f"beacon 锚点行含 {msg}")
+        else:
+            bad(f"beacon 锚点行缺 {msg}（summary:\n{summ}）")
+    # 未给 pr 上下文 → 不出现锚点行（普通写回模式语义不变）
+    body_plain = crw.build_check_body(survived)
+    if "pr_repo=" not in body_plain["output"]["summary"]:
+        ok("无 pr 上下文时不出现锚点行（普通写回语义不变）")
+    else:
+        bad("无 pr 上下文时 summary 出现锚点行（回归：污染普通写回摘要）")
+
     print("-----")
     if fails == 0:
         print("check_run_writeback 纯逻辑自测全部通过")
