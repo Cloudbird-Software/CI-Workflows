@@ -174,8 +174,11 @@ jobs:
           LLM_API_KEY: ${{ secrets.LLM_API_KEY1 }}
           LLM_BASE_URL: ${{ vars.LLM_ENDPOINT1 }}
           LLM_MODEL: ${{ vars.MODEL1 }}
-          # 推理型 provider 长生成超时（见 metering-wrapper LLM_TIMEOUT_S 说明）
-          LLM_TIMEOUT_S: "480"
+          # 推理型 provider 长生成超时（见 metering-wrapper LLM_TIMEOUT_S 说明）。
+          # 2026-08-31 480→600：StepFun step-3.7-flash 常开推理（reasoning 先吃
+          # token 预算），max_tokens 49152 档实测生成期 >480s 会截断（QW_Arena1#35
+          # 审计实弹数据），超时须同步放宽。
+          LLM_TIMEOUT_S: "600"
           ADV_TARGET: ${{ steps.target.outputs.target }}
           ADV_REPLAY: ${{ steps.target.outputs.replay }}
         run: |
@@ -213,6 +216,32 @@ jobs:
           else
             echo "## 恶意合规 adversary 报告：未产出（前置步骤失败）" >>"$GITHUB_STEP_SUMMARY"
           fi
+      - name: verdict 信标落盘（同仓 check run——跨仓中继证据源，W4-C2 补件）
+        # 2026-08-31：cloudbrid-agent App 令牌无 checks:write，跨仓 verdict 写回
+        # 403（QW_Arena1#35 实测）——verdict 无法直接落到目标仓 spec PR。本步把
+        # verdict 以 "adversary-verdict" check run 写到【本仓】审计 run 的 head
+        # commit（同仓 GITHUB_TOKEN checks:write，实测可用），summary 携带
+        # pr_repo/pr_number/pr_head_sha/audit_run_id 锚点行。目标仓的中继
+        # workflow（同款 adversary-relay 模式）读公开 check-runs API 机械核证
+        # 锚点行后，以目标仓自身 GITHUB_TOKEN 写回 "adversary" check run，
+        # 闭合 ruleset required check。App 令牌补授 checks:write 后本信标仍
+        # 保留（审计 run 自含 verdict 留痕，冗余证据链）。
+        if: always() && (inputs.pr_repo || github.event.client_payload.pr_repo)
+        env:
+          PR_REPO: ${{ inputs.pr_repo || github.event.client_payload.pr_repo }}
+          PR_NUMBER: ${{ inputs.pr_number || github.event.client_payload.pr_number }}
+          PR_SHA: ${{ inputs.head_sha || github.event.client_payload.head_sha }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          f="$RUNNER_TEMP/adversary-report.json"
+          [[ -f "$f" ]] || { echo "::warning::无判定报告可落信标（前置步失败）"; exit 2; }
+          args=(--report "$f" --repo "$GITHUB_REPOSITORY" --gh-token "$GITHUB_TOKEN"
+                --head-sha "$GITHUB_SHA" --name adversary-verdict --pr-repo "$PR_REPO")
+          [[ -n "${PR_NUMBER:-}" ]] && args+=(--spec-pr "$PR_NUMBER")
+          [[ -n "${PR_SHA:-}" ]] && args+=(--pr-head-sha "$PR_SHA")
+          python3 pipeline/adversary/check_run_writeback.py "${args[@]}"
+
       - name: verdict 写回 spec PR check run（W4-C2 #283，INV-02）
         # PR 上下文给定时（dispatch inputs 或 repository_dispatch 载荷），把
         # verdict 以 "adversary" check run 挂到 spec PR head——这是 ruleset
