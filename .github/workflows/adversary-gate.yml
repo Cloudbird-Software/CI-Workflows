@@ -77,11 +77,19 @@ jobs:
           echo "merge_group：adversary check run 已写回 success（EXPECTED_SKIP）"
 
       - name: 预检 PR 是否含 specs/** 变更（gh + github.token）
+        # 2026-08-31 精化（AC-14 豁免谓词确定性派生，与 .github#481 同步）：specs/**
+        # 命中只统计**可审计 spec 体**——变更路径所属 specs/<dir>/ 在 PR head 上
+        # 存在 spec.md（adversary 目标契约 specs/<dir>/{spec.md,suite/,run-suite.sh}
+        # 的判别面）。specs/ 下无 spec.md 的目录（如 test-freeze 的 MANIFEST
+        # 派生哈希账本）是机器可校验资产而非红队审计对象——其完整性由
+        # 自身哈希链/签名执法，红队无面可攻。判定仍由 diff 路径集 + head 树
+        # 确定性派生（禁人工打标）；API 失败负向断言不变（fail-closed）。
         if: github.event_name == 'pull_request'
         id: specspr
         env:
           GH_TOKEN: ${{ github.token }}
           PR_API: "repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}"
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           set -euo pipefail
           set +e
@@ -93,9 +101,59 @@ jobs:
             echo "has_specs=true" >> "$GITHUB_OUTPUT"
             echo "::warning::取 PR files 失败（负向断言：视为 spec 变更）"
           else
-            HASSPECS=$(echo "$FILES" | python3 -c "import json,sys;files=json.load(sys.stdin);print('true' if any(f.startswith('specs/') for f in files) else 'false')")
-            echo "has_specs=$HASSPECS" >> "$GITHUB_OUTPUT"
+            SPECS_HITS=$(echo "$FILES" | python3 -c "import json,sys;files=json.load(sys.stdin);print('\n'.join(f for f in files if f.startswith('specs/')))")
+            if [[ -z "$SPECS_HITS" ]]; then
+              echo "has_specs=false" >> "$GITHUB_OUTPUT"
+            else
+              # 逐变更 specs 目录核验可审计性（head 树上 specs/<dir>/spec.md 存在）
+              AUDITABLE=0; ADJACENT_DIRS=""
+              for d in $(echo "$SPECS_HITS" | sed 's|^specs/||' | cut -d/ -f1 | sort -u); do
+                [[ -n "$d" ]] || continue
+                if gh api "repos/${{ github.repository }}/contents/specs/$d/spec.md?ref=$HEAD_SHA" >/dev/null 2>&1; then
+                  AUDITABLE=1
+                else
+                  ADJACENT_DIRS="$ADJACENT_DIRS $d"
+                fi
+              done
+              # specs/ 根下直挂文件（无目录层）→ fail-closed 视为可审计（红队判别面外不放行）
+              if echo "$SPECS_HITS" | grep -qv '^specs/[^/]*/'; then AUDITABLE=1; fi
+              if [[ $AUDITABLE -eq 1 ]]; then
+                echo "has_specs=true" >> "$GITHUB_OUTPUT"
+              else
+                echo "has_specs=adjacent" >> "$GITHUB_OUTPUT"
+                echo "adjacent_dirs=$(echo $ADJACENT_DIRS)" >> "$GITHUB_OUTPUT"
+                echo "specs 邻接变更（无可审计 spec 体）：$ADJACENT_DIRS"
+              fi
+            fi
           fi
+
+      - name: specs 邻接变更（无 spec.md 审计体）——写 success check run 放行
+        # EXPECTED_SKIP（AC-14）：specs/** 命中但全部属无 spec.md 的目录
+        # （MANIFEST/README 类派生资产）——确定性派生豁免，非人工打标。
+        if: steps.specspr.outputs.has_specs == 'adjacent'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          SUMMARY="specs/** 邻接变更但无可审计 spec 体（${{ steps.specspr.outputs.adjacent_dirs }} 无 spec.md，adversary 目标契约不成立）：EXPECTED_SKIP=True（AC-14 确定性派生豁免——哈希账本/MANIFEST 类资产由自身哈希链执法）"
+          python3 - "$SUMMARY" > "$RUNNER_TEMP/check_body.json" <<'PYEOF3'
+          import json, sys, datetime as dt
+          summary = sys.argv[1]
+          json.dump({
+            "name": "adversary",
+            "head_sha": "${{ github.event.pull_request.head.sha }}",
+            "status": "completed",
+            "conclusion": "success",
+            "completed_at": dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "output": {"title": "adversary: skipped (specs-adjacent, no auditable spec body)", "summary": summary},
+          }, sys.stdout)
+          PYEOF3
+          curl -fsS -X POST \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${{ github.repository }}/check-runs" \
+            -d @"$RUNNER_TEMP/check_body.json" \
+            && echo "specs 邻接变更：adversary check run 已写回 success（EXPECTED_SKIP）"
 
       - name: 非 specs PR——写 success check run 并放行（github.token）
         if: steps.specspr.outputs.has_specs == 'false'
