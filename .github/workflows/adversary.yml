@@ -155,7 +155,7 @@ jobs:
       - name: 出向白名单（风险窗口：attack/judge/写回/账本，INV-06 / AC-13）
         # 仅放行 LLM endpoint 与 api.github.com（写回 check run / 账本同步走
         # contents API）。git fetch 在本窗口被拦——所有 checkout 已前置。
-        uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c # v2.21.0
+        uses: step-security/harden-runner@e14015d583714f6e62063499dc959a02595150a1 # v2.21.1
         with:
           # 【偏离记录 2026-08-24】egress-policy: block 在本仓 8 轮实测恒拦
           # git fetch（harden-runner pre-step 自 job 起点全局应用策略，本地代理
