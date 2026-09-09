@@ -34,7 +34,7 @@ jobs:
       contents: write
     steps:
       - name: 出向白名单（仅 github + provider，INV-06）
-        uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c # v2.21.0
+        uses: step-security/harden-runner@e14015d583714f6e62063499dc959a02595150a1 # v2.21.1
         with:
           # 块标量修复：原 allowlist 缺 | 被 YAML 折叠为单行——harden-runner 策略
           # 从未实际生效（假绿）。audit 模式：block 在本 org 实测拦 git fetch（见
