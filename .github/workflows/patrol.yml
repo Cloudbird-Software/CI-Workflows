@@ -53,7 +53,7 @@ jobs:
         run: python3 pipeline/patrol/demo-target/run-exercise.py
       - name: 演习产物上传（issue 草稿/毕业回归/yield 报告——PR body 引用即证据）
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: patrol-exercise-${{ github.run_id }}
           path: |
@@ -130,7 +130,7 @@ jobs:
 
       - name: 产物上传（issue 草稿/yield 报告/毕业回归）
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: patrol-out-${{ github.run_id }}
           path: patrol-out/
@@ -139,7 +139,7 @@ jobs:
 
       - name: 跨 run 状态上传（指纹台账/observation 桶/corpus-state——下轮恢复）
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: patrol-state
           path: state/

@@ -120,7 +120,7 @@ jobs:
 
       - name: 上传成绩存档（judge_id@版本@prompt_hash 键——执照注册核验依据）
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: verifier-exam-results
           path: verifier-exam/results/
@@ -199,7 +199,7 @@ jobs:
             --out calibration/report.json
       - name: 上传校准样本与报告
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: verifier-calibration
           path: calibration/
@@ -238,7 +238,7 @@ jobs:
             --out rubric-shadow/records.jsonl --run-id "$RUN_ID"
       - name: 上传 shadow 记录
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: verifier-rubric-shadow
           path: rubric-shadow/
